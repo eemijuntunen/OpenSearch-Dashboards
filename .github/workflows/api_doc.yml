@@ -1,0 +1,43 @@
+# .github/workflows/api-documentation.yml
+name: API Documentation Generation
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/plugins/*/server/routes/**'
+      - 'src/plugins/*/server/plugin.ts'
+      - 'src/core/server/http/**'
+  pull_request:
+    paths:
+      - 'src/plugins/*/server/routes/**'
+      - 'src/plugins/*/server/plugin.ts'
+      - 'src/core/server/http/**'
+
+jobs:
+  generate-and-test-api-docs:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Generate OpenAPI Documentation
+        run: |
+          echo "Generating OpenAPI specification from API routes..."
+          node scripts/generate-openapi.js
+        
+      - name: Upload OpenAPI Spec Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-spec-${{ github.sha }}
+          path: docs/openapi/generated/
