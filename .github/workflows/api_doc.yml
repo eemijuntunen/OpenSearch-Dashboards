@@ -2,6 +2,7 @@
 name: API Documentation Generation
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, develop]
     paths:
