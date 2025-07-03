@@ -283,13 +283,32 @@ class APIRouteScanner {
   }
 }
 
+// At the end of the script:
 if (require.main === module) {
-  const scanner = new APIRouteScanner();
-  const spec = scanner.scanPlugins();
-  
-  // Write to file
-  fs.writeFileSync('docs/openapi/generated/api-spec.json', JSON.stringify(spec, null, 2));
-  console.log('OpenAPI specification generated successfully');
+  try {
+    console.log('Starting OpenAPI generation...');
+    
+    const scanner = new APIRouteScanner();
+    const spec = scanner.scanPlugins();
+    
+    // Ensure output directory exists
+    const outputDir = 'docs/openapi/generated';
+    if (!fs.existsSync(outputDir)) {
+      console.log(`Creating output directory: ${outputDir}`);
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+    
+    // Write the specification
+    const outputFile = path.join(outputDir, 'api-spec.json');
+    fs.writeFileSync(outputFile, JSON.stringify(spec, null, 2));
+    
+    console.log(`✅ OpenAPI specification generated successfully at ${outputFile}`);
+    console.log(`📊 Found ${spec.paths ? Object.keys(spec.paths).length : 0} API endpoints`);
+    
+  } catch (error) {
+    console.error('❌ Error generating OpenAPI specification:', error.message);
+    process.exit(1);
+  }
 }
 
 module.exports = APIRouteScanner;
