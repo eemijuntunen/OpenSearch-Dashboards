@@ -3,95 +3,159 @@ const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
 
-class APIRouteScanner {
+class OpenSearchDashboardsAPIScanner {
   constructor() {
     this.routes = [];
-    this.plugins = [];
+    this.basePaths = new Map(); // Store base paths for different routers
   }
 
-  scanPlugins() {
-    const pluginsDir = 'src/plugins';
-    const plugins = fs.readdirSync(pluginsDir);
+  scanAllRoutes() {
+    console.log('🔍 Scanning OpenSearch Dashboards routes...');
     
-    plugins.forEach(plugin => {
-      const routesPath = path.join(pluginsDir, plugin, 'server/routes');
-      if (fs.existsSync(routesPath)) {
-        this.scanRoutes(routesPath, plugin);
-      }
-    });
+    // Scan core routes
+    this.scanCoreRoutes();
     
+    // Scan plugin routes
+    this.scanPluginRoutes();
+    
+    console.log(`📊 Found ${this.routes.length} routes total`);
     return this.generateOpenAPISpec();
   }
 
-  scanRoutes(content) {
-    const routes = [];
-    
-    const simpleRoutes = content.match(/router\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/g);
-    
-    if (simpleRoutes) {
-      simpleRoutes.forEach(match => {
-        const [, method, path] = match.match(/router\.(\w+)\s*\(\s*['"`]([^'"`]+)['"`]/);
-        routes.push({ method: method.toUpperCase(), path });
-      });
-    }
-    
-    return routes;
+  scanCoreRoutes() {
+    const coreRoutesDir = 'src/core/server';
+    this.scanDirectory(coreRoutesDir, 'core');
   }
 
-  parseRouteFile(content, pluginName, fileName) {
-    // Parse TypeScript AST to find router.get(), router.post(), etc.
-    const sourceFile = ts.createSourceFile(
-      fileName,
-      content,
-      ts.ScriptTarget.Latest,
-      true
-    );
+  scanPluginRoutes() {
+    const pluginsDir = 'src/plugins';
+    if (fs.existsSync(pluginsDir)) {
+      const plugins = fs.readdirSync(pluginsDir);
+      plugins.forEach(plugin => {
+        const pluginRoutesPath = path.join(pluginsDir, plugin, 'server');
+        if (fs.existsSync(pluginRoutesPath)) {
+          this.scanDirectory(pluginRoutesPath, plugin);
+        }
+      });
+    }
+  }
 
-    const routes = this.extractRoutes(sourceFile);
-    routes.forEach(route => {
-      route.plugin = pluginName;
-      this.routes.push(route);
+  scanDirectory(dirPath, context) {
+    try {
+      this.findRouteFiles(dirPath, context);
+    } catch (error) {
+      console.warn(`⚠️  Warning: Could not scan ${dirPath}: ${error.message}`);
+    }
+  }
+
+  findRouteFiles(dirPath, context) {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    
+    entries.forEach(entry => {
+      const fullPath = path.join(dirPath, entry.name);
+      
+      if (entry.isDirectory()) {
+        // Recursively scan subdirectories
+        this.findRouteFiles(fullPath, context);
+      } else if (entry.isFile() && entry.name.endsWith('.ts')) {
+        // Skip test files
+        if (!entry.name.includes('.test.') && !entry.name.includes('.spec.')) {
+          this.parseRouteFile(fullPath, context);
+        }
+      }
     });
   }
 
-  extractRoutes(node) {
-    const routes = [];
-    
+  parseRouteFile(filePath, context) {
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        content,
+        ts.ScriptTarget.Latest,
+        true
+      );
+
+      // Extract base paths from router creation
+      this.extractBasePaths(sourceFile, filePath);
+      
+      // Extract routes from the file
+      const routes = this.extractRoutes(sourceFile, context, filePath);
+      this.routes.push(...routes);
+      
+      if (routes.length > 0) {
+        console.log(`✅ Found ${routes.length} routes in ${filePath}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️  Warning: Could not parse ${filePath}: ${error.message}`);
+    }
+  }
+
+  extractBasePaths(sourceFile, filePath) {
     const visit = (node) => {
-      // Look for router.get(), router.post(), etc.
+      // Look for: http.createRouter('/api/saved_objects/')
       if (ts.isCallExpression(node) && 
-          ts.isPropertyAccessExpression(node.expression)) {
+          ts.isPropertyAccessExpression(node.expression) &&
+          node.expression.name.text === 'createRouter') {
         
-        const method = node.expression.name.text;
-        if (['get', 'post', 'put', 'delete', 'patch'].includes(method)) {
-          const route = this.parseRouteDefinition(node, method);
-          if (route) routes.push(route);
+        const [pathArg] = node.arguments;
+        if (pathArg && ts.isStringLiteral(pathArg)) {
+          this.basePaths.set(filePath, pathArg.text);
+          console.log(`📍 Found base path: ${pathArg.text} in ${filePath}`);
         }
       }
       
       ts.forEachChild(node, visit);
     };
     
-    visit(node);
+    visit(sourceFile);
+  }
+
+  extractRoutes(sourceFile, context, filePath) {
+    const routes = [];
+    
+    const visit = (node) => {
+      // Look for router.get(), router.post(), etc.
+      if (ts.isCallExpression(node) && 
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === 'router') {
+        
+        const method = node.expression.name.text;
+        if (['get', 'post', 'put', 'delete', 'patch'].includes(method)) {
+          const route = this.parseRouteDefinition(node, method, context, filePath);
+          if (route) {
+            routes.push(route);
+          }
+        }
+      }
+      
+      ts.forEachChild(node, visit);
+    };
+    
+    visit(sourceFile);
     return routes;
   }
 
-  parseRouteDefinition(callExpression, method) {
-    // Extract route configuration
+  parseRouteDefinition(callExpression, method, context, filePath) {
     const [routeConfig] = callExpression.arguments;
     
-    if (!ts.isObjectLiteralExpression(routeConfig)) return null;
+    if (!routeConfig || !ts.isObjectLiteralExpression(routeConfig)) {
+      return null;
+    }
     
     const route = {
       method: method.toUpperCase(),
       path: null,
       validate: {},
-      description: null,
-      tags: []
+      context,
+      filePath,
+      basePath: this.basePaths.get(filePath) || this.guessBasePath(context, filePath)
     };
 
+    // Parse the route configuration object
     routeConfig.properties.forEach(prop => {
-      if (ts.isPropertyAssignment(prop)) {
+      if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
         const name = prop.name.text;
         
         switch (name) {
@@ -101,23 +165,36 @@ class APIRouteScanner {
           case 'validate':
             route.validate = this.parseValidationSchema(prop.initializer);
             break;
-          case 'options':
-            this.parseRouteOptions(prop.initializer, route);
-            break;
         }
       }
     });
 
-    return route.path ? route : null;
+    if (route.path) {
+      // Combine base path with route path
+      route.fullPath = this.combinePaths(route.basePath, route.path);
+      return route;
+    }
+    
+    return null;
+  }
+
+  extractStringLiteral(node) {
+    if (ts.isStringLiteral(node)) {
+      return node.text;
+    }
+    if (ts.isTemplateExpression(node)) {
+      // Handle template literals - simplified for now
+      return node.head.text + '${...}';
+    }
+    return null;
   }
 
   parseValidationSchema(node) {
-    // Parse @osd/config-schema validation
     const validation = {};
     
     if (ts.isObjectLiteralExpression(node)) {
       node.properties.forEach(prop => {
-        if (ts.isPropertyAssignment(prop)) {
+        if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
           const key = prop.name.text; // params, query, body
           validation[key] = this.parseSchemaObject(prop.initializer);
         }
@@ -129,18 +206,34 @@ class APIRouteScanner {
 
   parseSchemaObject(node) {
     // Convert @osd/config-schema to OpenAPI schema
-    // This is where we handle schema.object(), schema.string(), etc.
-    return this.convertSchemaToOpenAPI(node);
-  }
-
-  convertSchemaToOpenAPI(schemaNode) {
-    // Implementation to convert @osd/config-schema to OpenAPI format
-    // Returns OpenAPI schema object
+    // This is a simplified version - can be enhanced
     return {
       type: 'object',
       properties: {},
-      // ... conversion logic
+      description: 'Schema validation (detailed parsing not implemented)'
     };
+  }
+
+  guessBasePath(context, filePath) {
+    // Guess base path based on context and file path
+    if (context === 'core' && filePath.includes('saved_objects')) {
+      return '/api/saved_objects';
+    }
+    if (context !== 'core') {
+      return `/api/${context}`;
+    }
+    return '/api';
+  }
+
+  combinePaths(basePath, routePath) {
+    if (!basePath) basePath = '';
+    if (!routePath) routePath = '';
+    
+    // Remove trailing slash from base, leading slash from route
+    basePath = basePath.replace(/\/$/, '');
+    routePath = routePath.replace(/^\//, '');
+    
+    return basePath + '/' + routePath;
   }
 
   generateOpenAPISpec() {
@@ -149,7 +242,7 @@ class APIRouteScanner {
       info: {
         title: 'OpenSearch Dashboards API',
         version: '1.0.0',
-        description: 'Auto-generated API documentation'
+        description: 'Auto-generated API documentation for OpenSearch Dashboards'
       },
       paths: {},
       components: {
@@ -157,103 +250,69 @@ class APIRouteScanner {
       }
     };
 
-    // Group routes by plugin
-    const routesByPlugin = {};
+    // Group routes by full path
+    const pathGroups = {};
     this.routes.forEach(route => {
-      if (!routesByPlugin[route.plugin]) {
-        routesByPlugin[route.plugin] = [];
-      }
-      routesByPlugin[route.plugin].push(route);
-    });
-
-    // Generate paths
-    this.routes.forEach(route => {
-      if (!spec.paths[route.path]) {
-        spec.paths[route.path] = {};
+      if (!pathGroups[route.fullPath]) {
+        pathGroups[route.fullPath] = {};
       }
       
-      spec.paths[route.path][route.method.toLowerCase()] = {
-        tags: [route.plugin],
-        summary: route.description || `${route.method} ${route.path}`,
-        parameters: this.generateParameters(route.validate),
-        requestBody: this.generateRequestBody(route.validate),
-        responses: this.generateResponses(route)
+      pathGroups[route.fullPath][route.method.toLowerCase()] = {
+        tags: [route.context],
+        summary: `${route.method} ${route.fullPath}`,
+        description: `Route from ${route.filePath}`,
+        parameters: this.generateParameters(route),
+        requestBody: this.generateRequestBody(route),
+        responses: this.generateResponses()
       };
     });
 
+    spec.paths = pathGroups;
     return spec;
   }
 
-  extractStringLiteral(node) {
-    if (ts.isStringLiteral(node)) {
-      return node.text;
-    }
-    if (ts.isTemplateExpression(node)) {
-      // Handle template literals like `/api/${version}/example`
-      return node.head.text + '${...}'; // Simplified for now
-    }
-    return null;
-  }
-
-  parseRouteOptions(node, route) {
-    if (ts.isObjectLiteralExpression(node)) {
-      node.properties.forEach(prop => {
-        if (ts.isPropertyAssignment(prop)) {
-          const name = prop.name.text;
-          switch (name) {
-            case 'tags':
-              if (ts.isArrayLiteralExpression(prop.initializer)) {
-                route.tags = prop.initializer.elements.map(el => 
-                  ts.isStringLiteral(el) ? el.text : ''
-                ).filter(Boolean);
-              }
-              break;
-            case 'description':
-              route.description = this.extractStringLiteral(prop.initializer);
-              break;
-          }
-        }
-      });
-    }
-  }
-
-  generateParameters(validate) {
+  generateParameters(route) {
     const parameters = [];
     
-    if (validate.params) {
-      // Convert path parameters
-      Object.keys(validate.params.properties || {}).forEach(param => {
+    // Extract path parameters from the path pattern
+    const pathParams = route.path.match(/\{([^}]+)\}/g);
+    if (pathParams) {
+      pathParams.forEach(param => {
+        const paramName = param.replace(/[{}]/g, '');
         parameters.push({
-          name: param,
+          name: paramName,
           in: 'path',
-          required: true,
-          schema: { type: 'string' }
+          required: !paramName.includes('?'), // {id?} means optional
+          schema: { type: 'string' },
+          description: `Path parameter: ${paramName}`
         });
       });
     }
     
-    if (validate.query) {
-      // Convert query parameters
-      Object.keys(validate.query.properties || {}).forEach(param => {
-        parameters.push({
-          name: param,
-          in: 'query',
-          required: false,
-          schema: { type: 'string' }
-        });
+    // Add query parameters if validation exists
+    if (route.validate.query) {
+      parameters.push({
+        name: 'query',
+        in: 'query',
+        required: false,
+        schema: { type: 'object' },
+        description: 'Query parameters (detailed schema not parsed)'
       });
     }
     
     return parameters.length > 0 ? parameters : undefined;
   }
 
-  generateRequestBody(validate) {
-    if (validate.body) {
+  generateRequestBody(route) {
+    if (route.validate.body) {
       return {
         required: true,
         content: {
           'application/json': {
-            schema: validate.body
+            schema: {
+              type: 'object',
+              description: 'Request body (detailed schema not parsed)'
+            }
           }
         }
       };
@@ -261,7 +320,7 @@ class APIRouteScanner {
     return undefined;
   }
 
-  generateResponses(route) {
+  generateResponses() {
     return {
       '200': {
         description: 'Successful response',
@@ -276,6 +335,9 @@ class APIRouteScanner {
       '400': {
         description: 'Bad request'
       },
+      '404': {
+        description: 'Not found'
+      },
       '500': {
         description: 'Internal server error'
       }
@@ -283,18 +345,18 @@ class APIRouteScanner {
   }
 }
 
-// At the end of the script:
+// Main execution
 if (require.main === module) {
   try {
-    console.log('Starting OpenAPI generation...');
+    console.log('🚀 Starting OpenSearch Dashboards API documentation generation...');
     
-    const scanner = new APIRouteScanner();
-    const spec = scanner.scanPlugins();
+    const scanner = new OpenSearchDashboardsAPIScanner();
+    const spec = scanner.scanAllRoutes();
     
     // Ensure output directory exists
     const outputDir = 'docs/openapi/generated';
     if (!fs.existsSync(outputDir)) {
-      console.log(`Creating output directory: ${outputDir}`);
+      console.log(`📁 Creating output directory: ${outputDir}`);
       fs.mkdirSync(outputDir, { recursive: true });
     }
     
@@ -302,13 +364,29 @@ if (require.main === module) {
     const outputFile = path.join(outputDir, 'api-spec.json');
     fs.writeFileSync(outputFile, JSON.stringify(spec, null, 2));
     
-    console.log(`✅ OpenAPI specification generated successfully at ${outputFile}`);
-    console.log(`📊 Found ${spec.paths ? Object.keys(spec.paths).length : 0} API endpoints`);
+    console.log(`✅ OpenAPI specification generated successfully!`);
+    console.log(`📄 Output: ${outputFile}`);
+    console.log(`📊 Generated documentation for ${Object.keys(spec.paths).length} API endpoints`);
+    
+    // Write a summary
+    const summary = {
+      generated: new Date().toISOString(),
+      totalEndpoints: Object.keys(spec.paths).length,
+      endpoints: Object.keys(spec.paths).sort()
+    };
+    
+    fs.writeFileSync(
+      path.join(outputDir, 'generation-summary.json'), 
+      JSON.stringify(summary, null, 2)
+    );
+    
+    console.log(`📋 Summary written to: ${path.join(outputDir, 'generation-summary.json')}`);
     
   } catch (error) {
     console.error('❌ Error generating OpenAPI specification:', error.message);
+    console.error(error.stack);
     process.exit(1);
   }
 }
 
-module.exports = APIRouteScanner;
+module.exports = OpenSearchDashboardsAPIScanner;
