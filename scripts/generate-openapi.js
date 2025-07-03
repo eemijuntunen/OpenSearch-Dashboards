@@ -206,12 +206,222 @@ class OpenSearchDashboardsAPIScanner {
 
   parseSchemaObject(node) {
     // Convert @osd/config-schema to OpenAPI schema
-    // This is a simplified version - can be enhanced
+    if (ts.isCallExpression(node)) {
+      const methodName = this.getCallExpressionMethod(node);
+      
+      switch (methodName) {
+        case 'schema.object':
+          return this.parseObjectSchema(node);
+        case 'schema.string':
+          return this.parseStringSchema(node);
+        case 'schema.number':
+          return this.parseNumberSchema(node);
+        case 'schema.boolean':
+          return this.parseBooleanSchema(node);
+        case 'schema.arrayOf':
+          return this.parseArraySchema(node);
+        case 'schema.maybe':
+          return this.parseMaybeSchema(node);
+        case 'schema.recordOf':
+          return this.parseRecordSchema(node);
+        case 'schema.oneOf':
+          return this.parseOneOfSchema(node);
+        case 'schema.literal':
+          return this.parseLiteralSchema(node);
+        default:
+          return { type: 'object', description: `Unknown schema type: ${methodName}` };
+      }
+    }
+    
     return {
       type: 'object',
       properties: {},
-      description: 'Schema validation (detailed parsing not implemented)'
+      description: 'Schema validation (complex type not fully parsed)'
     };
+  }
+
+  getCallExpressionMethod(node) {
+    if (ts.isPropertyAccessExpression(node.expression)) {
+      const object = node.expression.expression;
+      const property = node.expression.name;
+      
+      if (ts.isIdentifier(object) && object.text === 'schema') {
+        return `schema.${property.text}`;
+      }
+      if (ts.isPropertyAccessExpression(object) && 
+          ts.isIdentifier(object.expression) && 
+          object.expression.text === 'schema') {
+        return `schema.${object.name.text}.${property.text}`;
+      }
+    }
+    return 'unknown';
+  }
+
+  parseObjectSchema(node) {
+    const [propertiesArg, optionsArg] = node.arguments;
+    const schema = {
+      type: 'object',
+      properties: {},
+      required: []
+    };
+
+    if (ts.isObjectLiteralExpression(propertiesArg)) {
+      propertiesArg.properties.forEach(prop => {
+        if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+          const propName = prop.name.text;
+          const propSchema = this.parseSchemaObject(prop.initializer);
+          
+          schema.properties[propName] = propSchema;
+          
+          // Check if property is required (not wrapped in schema.maybe)
+          if (!this.isOptionalSchema(prop.initializer)) {
+            schema.required.push(propName);
+          }
+        }
+      });
+    }
+
+    // Remove empty required array
+    if (schema.required.length === 0) {
+      delete schema.required;
+    }
+
+    return schema;
+  }
+
+  parseStringSchema(node) {
+    const [optionsArg] = node.arguments;
+    const schema = { type: 'string' };
+    
+    if (optionsArg && ts.isObjectLiteralExpression(optionsArg)) {
+      optionsArg.properties.forEach(prop => {
+        if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+          const optionName = prop.name.text;
+          if (optionName === 'defaultValue' && ts.isStringLiteral(prop.initializer)) {
+            schema.default = prop.initializer.text;
+          }
+        }
+      });
+    }
+    
+    return schema;
+  }
+
+  parseNumberSchema(node) {
+    const [optionsArg] = node.arguments;
+    const schema = { type: 'number' };
+    
+    if (optionsArg && ts.isObjectLiteralExpression(optionsArg)) {
+      optionsArg.properties.forEach(prop => {
+        if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+          const optionName = prop.name.text;
+          if (optionName === 'defaultValue' && ts.isNumericLiteral(prop.initializer)) {
+            schema.default = parseFloat(prop.initializer.text);
+          }
+          if (optionName === 'min' && ts.isNumericLiteral(prop.initializer)) {
+            schema.minimum = parseFloat(prop.initializer.text);
+          }
+          if (optionName === 'max' && ts.isNumericLiteral(prop.initializer)) {
+            schema.maximum = parseFloat(prop.initializer.text);
+          }
+        }
+      });
+    }
+    
+    return schema;
+  }
+
+  parseBooleanSchema(node) {
+    const [optionsArg] = node.arguments;
+    const schema = { type: 'boolean' };
+    
+    if (optionsArg && ts.isObjectLiteralExpression(optionsArg)) {
+      optionsArg.properties.forEach(prop => {
+        if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+          const optionName = prop.name.text;
+          if (optionName === 'defaultValue') {
+            if (prop.initializer.kind === ts.SyntaxKind.TrueKeyword) {
+              schema.default = true;
+            } else if (prop.initializer.kind === ts.SyntaxKind.FalseKeyword) {
+              schema.default = false;
+            }
+          }
+        }
+      });
+    }
+    
+    return schema;
+  }
+
+  parseArraySchema(node) {
+    const [itemsArg, optionsArg] = node.arguments;
+    const schema = {
+      type: 'array',
+      items: itemsArg ? this.parseSchemaObject(itemsArg) : { type: 'string' }
+    };
+    
+    if (optionsArg && ts.isObjectLiteralExpression(optionsArg)) {
+      optionsArg.properties.forEach(prop => {
+        if (ts.isPropertyAssignment(prop) && ts.isIdentifier(prop.name)) {
+          const optionName = prop.name.text;
+          if (optionName === 'minSize' && ts.isNumericLiteral(prop.initializer)) {
+            schema.minItems = parseFloat(prop.initializer.text);
+          }
+          if (optionName === 'maxSize' && ts.isNumericLiteral(prop.initializer)) {
+            schema.maxItems = parseFloat(prop.initializer.text);
+          }
+        }
+      });
+    }
+    
+    return schema;
+  }
+
+  parseMaybeSchema(node) {
+    const [innerArg] = node.arguments;
+    const innerSchema = innerArg ? this.parseSchemaObject(innerArg) : { type: 'string' };
+    // Maybe schemas are optional, so we don't mark them as required
+    return innerSchema;
+  }
+
+  parseRecordSchema(node) {
+    const [keyArg, valueArg] = node.arguments;
+    return {
+      type: 'object',
+      additionalProperties: valueArg ? this.parseSchemaObject(valueArg) : { type: 'string' }
+    };
+  }
+
+  parseOneOfSchema(node) {
+    const schemas = node.arguments.map(arg => this.parseSchemaObject(arg));
+    return {
+      oneOf: schemas
+    };
+  }
+
+  parseLiteralSchema(node) {
+    const [valueArg] = node.arguments;
+    if (ts.isStringLiteral(valueArg)) {
+      return {
+        type: 'string',
+        enum: [valueArg.text]
+      };
+    }
+    if (ts.isNumericLiteral(valueArg)) {
+      return {
+        type: 'number',
+        enum: [parseFloat(valueArg.text)]
+      };
+    }
+    return { type: 'string' };
+  }
+
+  isOptionalSchema(node) {
+    if (ts.isCallExpression(node)) {
+      const methodName = this.getCallExpressionMethod(node);
+      return methodName === 'schema.maybe';
+    }
+    return false;
   }
 
   guessBasePath(context, filePath) {
@@ -246,7 +456,23 @@ class OpenSearchDashboardsAPIScanner {
       },
       paths: {},
       components: {
-        schemas: {}
+        schemas: {},
+        parameters: {
+          type: {
+            name: 'type',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+            description: 'The type of saved object'
+          },
+          id: {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' },
+            description: 'The ID of the saved object'
+          }
+        }
       }
     };
 
@@ -257,18 +483,70 @@ class OpenSearchDashboardsAPIScanner {
         pathGroups[route.fullPath] = {};
       }
       
+      const operationId = `${route.method.toLowerCase()}_${route.fullPath.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const contextTag = this.getContextTag(route.context, route.filePath);
+      
       pathGroups[route.fullPath][route.method.toLowerCase()] = {
-        tags: [route.context],
-        summary: `${route.method} ${route.fullPath}`,
-        description: `Route from ${route.filePath}`,
+        tags: [contextTag],
+        summary: this.generateSummary(route),
+        description: this.generateDescription(route),
+        operationId: operationId,
         parameters: this.generateParameters(route),
         requestBody: this.generateRequestBody(route),
-        responses: this.generateResponses()
+        responses: this.generateResponses(route)
       };
     });
 
     spec.paths = pathGroups;
     return spec;
+  }
+
+  getContextTag(context, filePath) {
+    if (context === 'core' && filePath.includes('saved_objects')) {
+      return 'saved objects';
+    }
+    return context;
+  }
+
+  generateSummary(route) {
+    const action = this.getActionFromMethod(route.method);
+    const resource = this.getResourceFromPath(route.path);
+    
+    if (resource) {
+      return `${action} ${resource}`;
+    }
+    
+    return `${route.method} ${route.fullPath}`;
+  }
+
+  generateDescription(route) {
+    const fileName = path.basename(route.filePath, '.ts');
+    return `${this.generateSummary(route)} (from ${fileName}.ts)`;
+  }
+
+  getActionFromMethod(method) {
+    const actions = {
+      'GET': 'Get',
+      'POST': 'Create',
+      'PUT': 'Update',
+      'DELETE': 'Delete',
+      'PATCH': 'Modify'
+    };
+    return actions[method] || method;
+  }
+
+  getResourceFromPath(path) {
+    if (path.includes('saved_objects')) {
+      if (path.includes('_find')) return 'saved objects by search criteria';
+      if (path.includes('_export')) return 'saved objects export';
+      if (path.includes('_import')) return 'saved objects import';
+      if (path.includes('_bulk_create')) return 'multiple saved objects';
+      if (path.includes('_bulk_get')) return 'multiple saved objects';
+      if (path.includes('_bulk_update')) return 'multiple saved objects';
+      if (path.includes('{type}/{id}')) return 'a saved object';
+      return 'saved objects';
+    }
+    return null;
   }
 
   generateParameters(route) {
@@ -278,25 +556,57 @@ class OpenSearchDashboardsAPIScanner {
     const pathParams = route.path.match(/\{([^}]+)\}/g);
     if (pathParams) {
       pathParams.forEach(param => {
-        const paramName = param.replace(/[{}]/g, '');
+        const paramName = param.replace(/[{}?]/g, '');
+        const isOptional = param.includes('?');
+        
+        // Get parameter schema from validation if available
+        let paramSchema = { type: 'string' };
+        let description = `Path parameter: ${paramName}`;
+        
+        if (route.validate.params && route.validate.params.properties && route.validate.params.properties[paramName]) {
+          paramSchema = route.validate.params.properties[paramName];
+        }
+        
+        // Add better descriptions for common parameters
+        if (paramName === 'type') {
+          description = 'The type of saved object';
+        } else if (paramName === 'id') {
+          description = 'The ID of the saved object';
+        }
+        
         parameters.push({
           name: paramName,
           in: 'path',
-          required: !paramName.includes('?'), // {id?} means optional
-          schema: { type: 'string' },
-          description: `Path parameter: ${paramName}`
+          required: !isOptional,
+          schema: paramSchema,
+          description: description
         });
       });
     }
     
-    // Add query parameters if validation exists
-    if (route.validate.query) {
-      parameters.push({
-        name: 'query',
-        in: 'query',
-        required: false,
-        schema: { type: 'object' },
-        description: 'Query parameters (detailed schema not parsed)'
+    // Add individual query parameters if validation exists
+    if (route.validate.query && route.validate.query.properties) {
+      Object.entries(route.validate.query.properties).forEach(([paramName, paramSchema]) => {
+        const isRequired = route.validate.query.required && route.validate.query.required.includes(paramName);
+        
+        let description = `Query parameter: ${paramName}`;
+        
+        // Add better descriptions for common query parameters
+        if (paramName === 'overwrite') {
+          description = 'If set to true, will overwrite the existing saved object with same type and id.';
+        } else if (paramName === 'per_page') {
+          description = 'Number of objects to return per page';
+        } else if (paramName === 'page') {
+          description = 'Page number to return';
+        }
+        
+        parameters.push({
+          name: paramName,
+          in: 'query',
+          required: isRequired || false,
+          schema: paramSchema,
+          description: description
+        });
       });
     }
     
@@ -309,10 +619,7 @@ class OpenSearchDashboardsAPIScanner {
         required: true,
         content: {
           'application/json': {
-            schema: {
-              type: 'object',
-              description: 'Request body (detailed schema not parsed)'
-            }
+            schema: route.validate.body
           }
         }
       };
@@ -320,8 +627,8 @@ class OpenSearchDashboardsAPIScanner {
     return undefined;
   }
 
-  generateResponses() {
-    return {
+  generateResponses(route) {
+    const responses = {
       '200': {
         description: 'Successful response',
         content: {
@@ -333,7 +640,19 @@ class OpenSearchDashboardsAPIScanner {
         }
       },
       '400': {
-        description: 'Bad request'
+        description: 'Bad request',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object',
+              properties: {
+                error: { type: 'string' },
+                message: { type: 'string' },
+                statusCode: { type: 'number' }
+              }
+            }
+          }
+        }
       },
       '404': {
         description: 'Not found'
@@ -342,6 +661,17 @@ class OpenSearchDashboardsAPIScanner {
         description: 'Internal server error'
       }
     };
+
+    // Customize success response based on method
+    if (route.method === 'POST') {
+      responses['200'].description = 'The creation request is successful';
+    } else if (route.method === 'PUT') {
+      responses['200'].description = 'The update request is successful';
+    } else if (route.method === 'DELETE') {
+      responses['200'].description = 'The deletion request is successful';
+    }
+
+    return responses;
   }
 }
 
