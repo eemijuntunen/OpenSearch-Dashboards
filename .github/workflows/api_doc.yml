@@ -1,4 +1,3 @@
-# .github/workflows/api-documentation.yml
 name: API Documentation Generation
 
 on:
@@ -9,11 +8,13 @@ on:
       - 'src/plugins/*/server/routes/**'
       - 'src/plugins/*/server/plugin.ts'
       - 'src/core/server/http/**'
+      - 'src/core/server/saved_objects/routes/**'
   pull_request:
     paths:
       - 'src/plugins/*/server/routes/**'
       - 'src/plugins/*/server/plugin.ts'
       - 'src/core/server/http/**'
+      - 'src/core/server/saved_objects/routes/**'
 
 jobs:
   generate-and-test-api-docs:
@@ -42,3 +43,9 @@ jobs:
         with:
           name: openapi-spec-${{ github.sha }}
           path: docs/openapi/generated/
+          
+      - name: Upload Generation Summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-summary-${{ github.sha }}
+          path: docs/openapi/generated/generation-summary.json
