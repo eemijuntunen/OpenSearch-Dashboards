@@ -23,16 +23,19 @@ class APIRouteScanner {
     return this.generateOpenAPISpec();
   }
 
-  scanRoutes(routesPath, pluginName) {
-    const files = fs.readdirSync(routesPath);
+  scanRoutes(content) {
+    const routes = [];
     
-    files.forEach(file => {
-      if (file.endsWith('.ts')) {
-        const filePath = path.join(routesPath, file);
-        const content = fs.readFileSync(filePath, 'utf8');
-        this.parseRouteFile(content, pluginName, file);
-      }
-    });
+    const simpleRoutes = content.match(/router\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/g);
+    
+    if (simpleRoutes) {
+      simpleRoutes.forEach(match => {
+        const [, method, path] = match.match(/router\.(\w+)\s*\(\s*['"`]([^'"`]+)['"`]/);
+        routes.push({ method: method.toUpperCase(), path });
+      });
+    }
+    
+    return routes;
   }
 
   parseRouteFile(content, pluginName, fileName) {
