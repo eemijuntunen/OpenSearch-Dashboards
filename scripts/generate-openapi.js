@@ -180,6 +180,104 @@ class APIRouteScanner {
 
     return spec;
   }
+
+  extractStringLiteral(node) {
+    if (ts.isStringLiteral(node)) {
+      return node.text;
+    }
+    if (ts.isTemplateExpression(node)) {
+      // Handle template literals like `/api/${version}/example`
+      return node.head.text + '${...}'; // Simplified for now
+    }
+    return null;
+  }
+
+  parseRouteOptions(node, route) {
+    if (ts.isObjectLiteralExpression(node)) {
+      node.properties.forEach(prop => {
+        if (ts.isPropertyAssignment(prop)) {
+          const name = prop.name.text;
+          switch (name) {
+            case 'tags':
+              if (ts.isArrayLiteralExpression(prop.initializer)) {
+                route.tags = prop.initializer.elements.map(el => 
+                  ts.isStringLiteral(el) ? el.text : ''
+                ).filter(Boolean);
+              }
+              break;
+            case 'description':
+              route.description = this.extractStringLiteral(prop.initializer);
+              break;
+          }
+        }
+      });
+    }
+  }
+
+  generateParameters(validate) {
+    const parameters = [];
+    
+    if (validate.params) {
+      // Convert path parameters
+      Object.keys(validate.params.properties || {}).forEach(param => {
+        parameters.push({
+          name: param,
+          in: 'path',
+          required: true,
+          schema: { type: 'string' }
+        });
+      });
+    }
+    
+    if (validate.query) {
+      // Convert query parameters
+      Object.keys(validate.query.properties || {}).forEach(param => {
+        parameters.push({
+          name: param,
+          in: 'query',
+          required: false,
+          schema: { type: 'string' }
+        });
+      });
+    }
+    
+    return parameters.length > 0 ? parameters : undefined;
+  }
+
+  generateRequestBody(validate) {
+    if (validate.body) {
+      return {
+        required: true,
+        content: {
+          'application/json': {
+            schema: validate.body
+          }
+        }
+      };
+    }
+    return undefined;
+  }
+
+  generateResponses(route) {
+    return {
+      '200': {
+        description: 'Successful response',
+        content: {
+          'application/json': {
+            schema: {
+              type: 'object'
+            }
+          }
+        }
+      },
+      '400': {
+        description: 'Bad request'
+      },
+      '500': {
+        description: 'Internal server error'
+      }
+    };
+  }
 }
 
 if (require.main === module) {
