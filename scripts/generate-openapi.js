@@ -456,7 +456,16 @@ class OpenSearchDashboardsAPIScanner {
       },
       paths: {},
       components: {
-        schemas: {},
+        schemas: {
+          '400_bad_request': {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+              statusCode: { type: 'number' }
+            }
+          }
+        },
         parameters: {
           type: {
             name: 'type',
@@ -516,6 +525,25 @@ class OpenSearchDashboardsAPIScanner {
       return `${action} ${resource}`;
     }
     
+    // For saved objects, provide more specific summaries
+    if (route.path.includes('saved_objects')) {
+      if (route.method === 'POST' && route.path.includes('{type}/{id?}')) {
+        return 'Create a new saved object with type and id.';
+      }
+      if (route.method === 'GET' && route.path.includes('{type}/{id}')) {
+        return 'Get a saved object by type and id.';
+      }
+      if (route.method === 'PUT' && route.path.includes('{type}/{id}')) {
+        return 'Update a saved object by type and id.';
+      }
+      if (route.method === 'DELETE' && route.path.includes('{type}/{id}')) {
+        return 'Delete a saved object by type and id.';
+      }
+      if (route.method === 'GET' && route.path.includes('_find')) {
+        return 'Find saved objects by search criteria.';
+      }
+    }
+    
     return `${route.method} ${route.fullPath}`;
   }
 
@@ -559,28 +587,28 @@ class OpenSearchDashboardsAPIScanner {
         const paramName = param.replace(/[{}?]/g, '');
         const isOptional = param.includes('?');
         
-        // Get parameter schema from validation if available
-        let paramSchema = { type: 'string' };
-        let description = `Path parameter: ${paramName}`;
-        
-        if (route.validate.params && route.validate.params.properties && route.validate.params.properties[paramName]) {
-          paramSchema = route.validate.params.properties[paramName];
-        }
-        
-        // Add better descriptions for common parameters
+        // Use parameter references for common parameters
         if (paramName === 'type') {
-          description = 'The type of saved object';
+          parameters.push({ $ref: '#/components/parameters/type' });
         } else if (paramName === 'id') {
-          description = 'The ID of the saved object';
+          parameters.push({ $ref: '#/components/parameters/id' });
+        } else {
+          // Get parameter schema from validation if available
+          let paramSchema = { type: 'string' };
+          let description = `Path parameter: ${paramName}`;
+          
+          if (route.validate.params && route.validate.params.properties && route.validate.params.properties[paramName]) {
+            paramSchema = route.validate.params.properties[paramName];
+          }
+          
+          parameters.push({
+            name: paramName,
+            in: 'path',
+            required: !isOptional,
+            schema: paramSchema,
+            description: description
+          });
         }
-        
-        parameters.push({
-          name: paramName,
-          in: 'path',
-          required: !isOptional,
-          schema: paramSchema,
-          description: description
-        });
       });
     }
     
@@ -615,16 +643,113 @@ class OpenSearchDashboardsAPIScanner {
 
   generateRequestBody(route) {
     if (route.validate.body) {
-      return {
+      const schema = this.enhanceSchemaDescriptions(route.validate.body, route);
+      const requestBody = {
         required: true,
         content: {
           'application/json': {
-            schema: route.validate.body
+            schema: schema
           }
         }
       };
+      
+      // Add examples for saved objects create endpoint
+      if (route.path.includes('saved_objects') && route.method === 'POST' && route.path.includes('{type}/{id?}')) {
+        requestBody.content['application/json'].examples = {
+          indexPattern: {
+            summary: 'Example of creating an index pattern saved object',
+            value: {
+              attributes: {
+                title: 'my-index-pattern',
+                fields: '[{"count":"1","name":"@timestamp","searchable":"true"}]'
+              },
+              references: [
+                {
+                  id: '51339560-1d7c-11ef-b757-55fac6c80d9a',
+                  name: 'dataSource',
+                  type: 'data-source'
+                }
+              ]
+            }
+          },
+          vegaVisualization: {
+            summary: 'Example of creating a Vega visualization saved object',
+            value: {
+              attributes: {
+                title: 'my-vega-visualization',
+                visState: '{"title":"vegaVisualization","type":"vega","aggs":[]}',
+                uiStateJSON: '{}',
+                description: '',
+                version: 1,
+                kibanaSavedObjectMeta: {
+                  searchSourceJSON: '{"query":{"language":"kuery","query":""},"filter":[]}'
+                }
+              },
+              references: [
+                {
+                  id: '51339560-1d7c-11ef-b757-55fac6c80d9a',
+                  name: 'dataSource',
+                  type: 'data-source'
+                }
+              ]
+            }
+          },
+          dashboards: {
+            summary: 'Example of creating a dashboard saved object',
+            value: {
+              attributes: {
+                title: 'Revenue Dashboard',
+                description: 'Revenue dashboard',
+                panelsJSON: '[{"version":"2.9.0","gridData":{"x":0,"y":0,"w":24,"h":15,"i":"5db1d75d-f680-4869-a0e8-0f2b8b05b99c"},"panelIndex":"5db1d75d-f680-4869-a0e8-0f2b8b05b99c","embeddableConfig":{},"panelRefName":"panel_0"}]',
+                optionsJSON: '{"hidePanelTitles":false,"useMargins":true}',
+                version: 1,
+                timeRestore: true,
+                kibanaSavedObjectMeta: {
+                  searchSourceJSON: '{"query":{"language":"kuery","query":""},"filter":[]}'
+                }
+              },
+              references: [
+                {
+                  id: '37cc8650-b882-11e8-a6d9-e546fe2bba5f',
+                  name: 'panel_0',
+                  type: 'visualization'
+                }
+              ]
+            }
+          }
+        };
+      }
+      
+      return requestBody;
     }
     return undefined;
+  }
+
+  enhanceSchemaDescriptions(schema, route) {
+    if (!schema || typeof schema !== 'object') return schema;
+    
+    const enhanced = { ...schema };
+    
+    // Add descriptions for saved objects properties
+    if (route.path.includes('saved_objects') && enhanced.properties) {
+      if (enhanced.properties.attributes) {
+        enhanced.properties.attributes.description = 'The metadata of the saved object to be created, and the object is not validated.';
+      }
+      if (enhanced.properties.migrationVersion) {
+        enhanced.properties.migrationVersion.description = 'The information about the migrations that have been applied to this saved object to be created.';
+      }
+      if (enhanced.properties.references) {
+        enhanced.properties.references.description = 'List of objects that describe other saved objects the created object references.';
+      }
+      if (enhanced.properties.initialNamespaces) {
+        enhanced.properties.initialNamespaces.description = 'Namespaces that this saved object exists in. This attribute is only used for multi-namespace saved object types.';
+      }
+      if (enhanced.properties.workspaces) {
+        enhanced.properties.workspaces.description = 'Workspaces that this saved object exists in.';
+      }
+    }
+    
+    return enhanced;
   }
 
   generateResponses(route) {
@@ -644,12 +769,7 @@ class OpenSearchDashboardsAPIScanner {
         content: {
           'application/json': {
             schema: {
-              type: 'object',
-              properties: {
-                error: { type: 'string' },
-                message: { type: 'string' },
-                statusCode: { type: 'number' }
-              }
+              $ref: '#/components/schemas/400_bad_request'
             }
           }
         }
@@ -720,3 +840,4 @@ if (require.main === module) {
 }
 
 module.exports = OpenSearchDashboardsAPIScanner;
+
