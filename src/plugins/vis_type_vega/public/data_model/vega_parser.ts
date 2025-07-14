@@ -38,7 +38,9 @@ import { i18n } from '@osd/i18n';
 // @ts-ignore
 import { Signal } from 'vega';
 
+// @ts-expect-error TS6133 TODO(ts-error): fixme
 import { HttpSetup } from 'opensearch-dashboards/public';
+// @ts-expect-error TS7016 TODO(ts-error): fixme
 import { vega, vegaLite } from '../lib/vega';
 import { OpenSearchQueryParser } from './opensearch_query_parser';
 import { Utils } from './utils';
@@ -656,7 +658,7 @@ The URL is an identifier only. OpenSearch Dashboards and your browser will never
         opensearch: new OpenSearchQueryParser(this.timeCache, this.searchAPI, this.filters, onWarn),
         emsfile: new EmsFileParser(serviceSettings),
         url: new UrlParser(onWarn),
-        ppl: new PPLQueryParser(this.searchAPI),
+        ppl: new PPLQueryParser(this.timeCache, this.searchAPI),
       };
     }
     const pending: PendingType = {};

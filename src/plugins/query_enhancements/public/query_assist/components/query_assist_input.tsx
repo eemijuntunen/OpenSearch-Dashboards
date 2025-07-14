@@ -6,8 +6,10 @@
 import { EuiFieldText, EuiIcon, EuiOutsideClickDetector, EuiPortal } from '@elastic/eui';
 import React, { useMemo, useState } from 'react';
 import { PersistedLog, QuerySuggestionTypes } from '../../../../data/public';
-import assistantMark from '../../assets/query_assist_mark.svg';
+import assistantMark from '../../assets/sparkle_mark.svg';
 import { getData } from '../../services';
+import { AgentError } from '../utils';
+import { WarningBadge } from './warning_badge';
 
 interface QueryAssistInputProps {
   inputRef: React.RefObject<HTMLInputElement>;
@@ -16,6 +18,8 @@ interface QueryAssistInputProps {
   initialValue?: string;
   selectedIndex?: string;
   previousQuestion?: string;
+  error?: AgentError;
+  placeholder?: string;
 }
 
 export const QueryAssistInput: React.FC<QueryAssistInputProps> = (props) => {
@@ -72,23 +76,21 @@ export const QueryAssistInput: React.FC<QueryAssistInputProps> = (props) => {
 
   return (
     <EuiOutsideClickDetector onOutsideClick={() => setIsSuggestionsVisible(false)}>
-      <div>
+      <div className="queryAssist__inputWrapper">
         <EuiFieldText
+          className="queryAssist__input"
           data-test-subj="query-assist-input-field-text"
           inputRef={props.inputRef}
           value={value}
           disabled={props.isDisabled}
           onClick={() => setIsSuggestionsVisible(true)}
           onChange={(e) => setValue(e.target.value)}
-          onKeyDown={() => setIsSuggestionsVisible(true)}
-          placeholder={
-            props.previousQuestion ||
-            (props.selectedIndex
-              ? `Ask a natural language question about ${props.selectedIndex} to generate a query`
-              : 'Select an index to ask a question')
-          }
+          onKeyDown={(e) => setIsSuggestionsVisible(e.key !== 'Enter')}
+          placeholder={props.placeholder}
           prepend={<EuiIcon type={assistantMark} />}
+          append={<WarningBadge error={props.error} />}
           fullWidth
+          compressed
         />
         <EuiPortal>
           <SuggestionsComponent

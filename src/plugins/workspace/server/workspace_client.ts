@@ -13,11 +13,12 @@ import {
   UiSettingsServiceStart,
   WORKSPACE_TYPE,
   Logger,
+  WorkspaceFindOptions,
+  SavedObjectsErrorHelpers,
 } from '../../../core/server';
 import { updateWorkspaceState, getWorkspaceState } from '../../../core/server/utils';
 import {
   IWorkspaceClientImpl,
-  WorkspaceFindOptions,
   IResponse,
   IRequestDetail,
   WorkspaceAttributeWithPermission,
@@ -28,7 +29,11 @@ import {
   WORKSPACE_ID_CONSUMER_WRAPPER_ID,
   WORKSPACE_SAVED_OBJECTS_CLIENT_WRAPPER_ID,
 } from '../common/constants';
-import { DATA_SOURCE_SAVED_OBJECT_TYPE } from '../../data_source/common';
+import {
+  DATA_SOURCE_SAVED_OBJECT_TYPE,
+  DATA_CONNECTION_SAVED_OBJECT_TYPE,
+} from '../../data_source/common';
+import { ConfigSchema } from '../config';
 
 const WORKSPACE_ID_SIZE = 6;
 
@@ -36,15 +41,25 @@ const DUPLICATE_WORKSPACE_NAME_ERROR = i18n.translate('workspace.duplicate.name.
   defaultMessage: 'workspace name has already been used, try with a different name',
 });
 
+const WORKSPACE_NOT_FOUND_ERROR = i18n.translate('workspace.notFound.error', {
+  defaultMessage: 'workspace not found',
+});
+
+interface ConfigType {
+  maximum_workspaces?: ConfigSchema['maximum_workspaces'];
+}
+
 export class WorkspaceClient implements IWorkspaceClientImpl {
   private setupDep: CoreSetup;
   private logger: Logger;
   private savedObjects?: SavedObjectsServiceStart;
   private uiSettings?: UiSettingsServiceStart;
+  private config?: ConfigType;
 
-  constructor(core: CoreSetup, logger: Logger) {
+  constructor(core: CoreSetup, logger: Logger, config?: ConfigType) {
     this.setupDep = core;
     this.logger = logger;
+    this.config = config;
   }
 
   private getScopedClientWithoutPermission(
@@ -83,6 +98,10 @@ export class WorkspaceClient implements IWorkspaceClientImpl {
     };
   }
   private formatError(error: Error | any): string {
+    if (SavedObjectsErrorHelpers.isNotFoundError(error)) {
+      return WORKSPACE_NOT_FOUND_ERROR;
+    }
+
     return error.message || error.error || 'Error';
   }
   public async setup(core: CoreSetup): Promise<IResponse<boolean>> {
@@ -96,30 +115,54 @@ export class WorkspaceClient implements IWorkspaceClientImpl {
     requestDetail: IRequestDetail,
     payload: Omit<WorkspaceAttributeWithPermission, 'id'> & {
       dataSources?: string[];
+      dataConnections?: string[];
     }
   ): ReturnType<IWorkspaceClientImpl['create']> {
     try {
-      const { permissions, dataSources, ...attributes } = payload;
+      const { permissions, dataSources, dataConnections, ...attributes } = payload;
       const id = generateRandomId(WORKSPACE_ID_SIZE);
       const client = this.getSavedObjectClientsFromRequestDetail(requestDetail);
-      const existingWorkspaceRes = await this.getScopedClientWithoutPermission(requestDetail)?.find(
-        {
-          type: WORKSPACE_TYPE,
-          search: `"${attributes.name}"`,
-          searchFields: ['name'],
-        }
-      );
+      const clientWithoutPermission = this.getScopedClientWithoutPermission(requestDetail);
+      const existingWorkspaceRes = await clientWithoutPermission?.find({
+        type: WORKSPACE_TYPE,
+        search: `"${attributes.name}"`,
+        searchFields: ['name'],
+      });
       if (existingWorkspaceRes && existingWorkspaceRes.total > 0) {
         throw new Error(DUPLICATE_WORKSPACE_NAME_ERROR);
       }
 
+      if (this.config?.maximum_workspaces) {
+        const workspaces = await clientWithoutPermission?.find({
+          type: WORKSPACE_TYPE,
+        });
+        if (workspaces && workspaces.total >= this.config.maximum_workspaces) {
+          throw new Error(
+            i18n.translate('workspace.maximum.error', {
+              defaultMessage: 'Maximum number of workspaces ({length}) reached',
+              values: {
+                length: this.config.maximum_workspaces,
+              },
+            })
+          );
+        }
+      }
+
+      const promises = [];
+
       if (dataSources) {
-        const promises = [];
         for (const dataSourceId of dataSources) {
           promises.push(client.addToWorkspaces(DATA_SOURCE_SAVED_OBJECT_TYPE, dataSourceId, [id]));
         }
-        await Promise.all(promises);
       }
+      if (dataConnections) {
+        for (const connectionId of dataConnections) {
+          promises.push(
+            client.addToWorkspaces(DATA_CONNECTION_SAVED_OBJECT_TYPE, connectionId, [id])
+          );
+        }
+      }
+      await Promise.all(promises);
 
       const result = await client.create<Omit<WorkspaceAttribute, 'id'>>(
         WORKSPACE_TYPE,
@@ -215,9 +258,15 @@ export class WorkspaceClient implements IWorkspaceClientImpl {
     id: string,
     payload: Partial<Omit<WorkspaceAttributeWithPermission, 'id'>> & {
       dataSources?: string[];
+      dataConnections?: string[];
     }
   ): Promise<IResponse<boolean>> {
-    const { permissions, dataSources: newDataSources, ...attributes } = payload;
+    const {
+      permissions,
+      dataSources: newDataSources,
+      dataConnections: newDataConnections,
+      ...attributes
+    } = payload;
     try {
       const client = this.getSavedObjectClientsFromRequestDetail(requestDetail);
       let workspaceInDB: SavedObject<WorkspaceAttribute> = await client.get(WORKSPACE_TYPE, id);
@@ -235,17 +284,19 @@ export class WorkspaceClient implements IWorkspaceClientImpl {
         }
       }
 
+      const originalSelectedDataSourcesAndConnections = await getDataSourcesList(client, [id]);
+      const promises = [];
+
       if (newDataSources) {
-        const originalSelectedDataSources = await getDataSourcesList(client, [id]);
-        const originalSelectedDataSourceIds = originalSelectedDataSources.map((ds) => ds.id);
+        const originalSelectedDataSourceIds = originalSelectedDataSourcesAndConnections
+          .filter((item) => item.type === DATA_SOURCE_SAVED_OBJECT_TYPE)
+          .map((ds) => ds.id);
         const dataSourcesToBeRemoved = originalSelectedDataSourceIds.filter(
           (ds) => !newDataSources.find((item) => item === ds)
         );
         const dataSourcesToBeAdded = newDataSources.filter(
           (ds) => !originalSelectedDataSourceIds.find((item) => item === ds)
         );
-
-        const promises = [];
         if (dataSourcesToBeRemoved.length > 0) {
           for (const dataSourceId of dataSourcesToBeRemoved) {
             promises.push(
@@ -260,11 +311,37 @@ export class WorkspaceClient implements IWorkspaceClientImpl {
             );
           }
         }
-        if (promises.length > 0) {
-          await Promise.all(promises);
+      }
+
+      if (newDataConnections) {
+        const originalSelectedDataConnectionIds = originalSelectedDataSourcesAndConnections
+          .filter((item) => item.type === DATA_CONNECTION_SAVED_OBJECT_TYPE)
+          .map((ds) => ds.id);
+        const dataConnectionsToBeRemoved = originalSelectedDataConnectionIds.filter(
+          (ds) => !newDataConnections.find((item) => item === ds)
+        );
+        const dataConnectionsToBeAdded = newDataConnections.filter(
+          (ds) => !originalSelectedDataConnectionIds.find((item) => item === ds)
+        );
+        if (dataConnectionsToBeRemoved.length > 0) {
+          for (const dataConnectionId of dataConnectionsToBeRemoved) {
+            promises.push(
+              client.deleteFromWorkspaces(DATA_CONNECTION_SAVED_OBJECT_TYPE, dataConnectionId, [id])
+            );
+          }
+        }
+        if (dataConnectionsToBeAdded.length > 0) {
+          for (const dataConnectionId of dataConnectionsToBeAdded) {
+            promises.push(
+              client.addToWorkspaces(DATA_CONNECTION_SAVED_OBJECT_TYPE, dataConnectionId, [id])
+            );
+          }
         }
       }
 
+      if (promises.length > 0) {
+        await Promise.all(promises);
+      }
       /**
        * When the workspace owner unassign themselves, ensure the default data source is set before
        * updating the workspace permissions. This prevents a lack of write permission on saved objects
@@ -326,9 +403,7 @@ export class WorkspaceClient implements IWorkspaceClientImpl {
         const promises = [];
         for (const dataSource of selectedDataSources) {
           promises.push(
-            savedObjectClient.deleteFromWorkspaces(DATA_SOURCE_SAVED_OBJECT_TYPE, dataSource.id, [
-              id,
-            ])
+            savedObjectClient.deleteFromWorkspaces(dataSource.type, dataSource.id, [id])
           );
         }
         await Promise.all(promises);
@@ -348,12 +423,67 @@ export class WorkspaceClient implements IWorkspaceClientImpl {
       };
     }
   }
+
+  public async associate(
+    requestDetail: IRequestDetail,
+    workspaceId: string,
+    objects: Array<{ id: string; type: string }>
+  ): Promise<IResponse<Array<{ id: string; error?: string }>>> {
+    const savedObjectClient = this.getSavedObjectClientsFromRequestDetail(requestDetail);
+    const promises = objects.map(async (obj) => {
+      try {
+        await savedObjectClient.addToWorkspaces(obj.type, obj.id, [workspaceId]);
+        return {
+          id: obj.id,
+        };
+      } catch (e) {
+        return {
+          id: obj.id,
+          error: this.formatError(e),
+        };
+      }
+    });
+    const result = await Promise.all(promises);
+    return {
+      success: true,
+      result,
+    };
+  }
+
+  public async dissociate(
+    requestDetail: IRequestDetail,
+    workspaceId: string,
+    objects: Array<{ id: string; type: string }>
+  ): Promise<IResponse<Array<{ id: string; error?: string }>>> {
+    const savedObjectClient = this.getSavedObjectClientsFromRequestDetail(requestDetail);
+    const promises = objects.map(async (obj) => {
+      try {
+        await savedObjectClient.deleteFromWorkspaces(obj.type, obj.id, [workspaceId]);
+        return {
+          id: obj.id,
+        };
+      } catch (e) {
+        return {
+          id: obj.id,
+          error: this.formatError(e),
+        };
+      }
+    });
+    const result = await Promise.all(promises);
+    return {
+      success: true,
+      result,
+    };
+  }
+
   public setSavedObjects(savedObjects: SavedObjectsServiceStart) {
     this.savedObjects = savedObjects;
   }
+
   public setUiSettings(uiSettings: UiSettingsServiceStart) {
     this.uiSettings = uiSettings;
   }
+
   public async destroy(): Promise<IResponse<boolean>> {
     return {
       success: true,

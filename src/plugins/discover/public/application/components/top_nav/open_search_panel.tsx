@@ -57,6 +57,8 @@ export function OpenSearchPanel({ onClose, makeUrl }: Props) {
     services: {
       core: { uiSettings, savedObjects, application },
       addBasePath,
+      data,
+      filterManager,
     },
   } = useOpenSearchDashboards<DiscoverViewServices>();
 
@@ -87,14 +89,20 @@ export function OpenSearchPanel({ onClose, makeUrl }: Props) {
               name: i18n.translate('discover.savedSearch.savedObjectName', {
                 defaultMessage: 'Saved search',
               }),
+              includeFields: ['kibanaSavedObjectMeta'],
             },
           ]}
           onChoose={(id) => {
+            // Reset query app filters before loading saved search
+            filterManager.setAppFilters([]);
+            data.query.queryString.clearQuery();
             application.navigateToApp('discover', { path: `#/view/${id}` });
             onClose();
           }}
           uiSettings={uiSettings}
           savedObjects={savedObjects}
+          application={application}
+          data={data}
         />
       </EuiFlyoutBody>
       <EuiFlyoutFooter>

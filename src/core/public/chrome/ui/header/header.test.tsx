@@ -40,6 +40,7 @@ import { ISidecarConfig, SIDECAR_DOCKED_MODE } from '../../../overlays';
 import { WorkspaceObject } from 'src/core/public/workspace';
 import { HeaderVariant } from '../../constants';
 import { Header } from './header';
+import { InjectedMetadataStart } from '../../../injected_metadata';
 
 jest.mock('@elastic/eui/lib/services/accessibility/html_id_generator', () => ({
   htmlIdGenerator: () => () => 'mockId',
@@ -48,6 +49,9 @@ jest.mock('@elastic/eui/lib/services/accessibility/html_id_generator', () => ({
 function mockProps() {
   const http = httpServiceMock.createSetupContract({ basePath: '/test' });
   const application = applicationServiceMock.createInternalStartContract();
+  const injectedMetadata = ({
+    getPlugins: jest.fn().mockReturnValue([]),
+  } as unknown) as InjectedMetadataStart;
 
   return {
     http,
@@ -72,6 +76,7 @@ function mockProps() {
     navControlsRight$: new BehaviorSubject([]),
     navControlsExpandedCenter$: new BehaviorSubject([]),
     navControlsExpandedRight$: new BehaviorSubject([]),
+    navControlsPrimaryHeaderRight$: new BehaviorSubject([]),
     basePath: http.basePath,
     isLocked$: new BehaviorSubject(false),
     loadingCount$: new BehaviorSubject(0),
@@ -91,6 +96,7 @@ function mockProps() {
     workspaceList$: new BehaviorSubject([]),
     currentWorkspace$: new BehaviorSubject<WorkspaceObject | null>(null),
     useUpdatedHeader: false,
+    injectedMetadata,
   };
 }
 
@@ -223,13 +229,13 @@ describe('Header', () => {
     const component = mountWithIntl(<Header {...props} />);
     expect(component.find('[data-test-subj="headerApplicationTitle"]').exists()).toBeTruthy();
     expect(component.find('[data-test-subj="breadcrumb first"]').exists()).toBeTruthy();
-    expect(component.find('[data-test-subj="headerBadgeControl"]').exists()).toBeTruthy();
-    expect(component.find('HeaderBadge').exists()).toBeTruthy();
-    expect(component.find('[data-test-subj="headerLeftControl"]').exists()).toBeTruthy();
-    expect(component.find('HeaderNavControls').exists()).toBeTruthy();
-    expect(component.find('[data-test-subj="headerCenterControl"]').exists()).toBeTruthy();
-    expect(component.find('[data-test-subj="headerRightControl"]').exists()).toBeTruthy();
-    expect(component.find('HeaderActionMenu').exists()).toBeTruthy();
+    expect(component.find('[data-test-subj="headerBadgeControl"]').exists()).toBeFalsy();
+    expect(component.find('HeaderBadge').exists()).toBeFalsy();
+    expect(component.find('[data-test-subj="headerLeftControl"]').exists()).toBeFalsy();
+    expect(component.find('HeaderNavControls')).toHaveLength(1);
+    expect(component.find('[data-test-subj="headerCenterControl"]').exists()).toBeFalsy();
+    expect(component.find('[data-test-subj="headerRightControl"]').exists()).toBeFalsy();
+    expect(component.find('HeaderActionMenu').exists()).toBeFalsy();
     expect(component.find('[data-test-subj="headerDescriptionControl"]').exists()).toBeTruthy();
     expect(component.find('[data-test-subj="headerBottomControl"]').exists()).toBeTruthy();
     expect(component).toMatchSnapshot();
@@ -252,9 +258,87 @@ describe('Header', () => {
     const component = mountWithIntl(<Header {...props} />);
     expect(component.find('[data-test-subj="headerApplicationTitle"]').exists()).toBeFalsy();
     expect(component.find('[data-test-subj="breadcrumb first"]').exists()).toBeFalsy();
-    expect(component.find('HeaderActionMenu').exists()).toBeTruthy();
+    expect(component.find('HeaderActionMenu').exists()).toBeFalsy();
     expect(component.find('RecentItems').exists()).toBeTruthy();
-    expect(component.find('[data-test-subj="headerRightControl"]').exists()).toBeTruthy();
+    expect(component.find('[data-test-subj="headerRightControl"]').exists()).toBeFalsy();
     expect(component).toMatchSnapshot();
+  });
+
+  it('should remember the collapse state when new nav is enabled', () => {
+    const branding = {
+      useExpandedHeader: false,
+    };
+    const props = {
+      ...mockProps(),
+      branding,
+      useUpdatedHeader: true,
+      onIsLockedUpdate: jest.fn(),
+    };
+    const component = mountWithIntl(<Header {...props} />);
+    component.find(EuiHeaderSectionItemButton).first().simulate('click');
+    expect(props.onIsLockedUpdate).toBeCalledWith(true);
+  });
+
+  describe('banner plugin integration', () => {
+    it('renders banner container when banner plugin is enabled', () => {
+      const injectedMetadata = ({
+        getPlugins: jest.fn().mockReturnValue([
+          {
+            id: 'banner',
+            config: {
+              enabled: true,
+            },
+          },
+        ]),
+      } as unknown) as InjectedMetadataStart;
+
+      const props = {
+        ...mockProps(),
+        injectedMetadata,
+      };
+
+      const component = mountWithIntl(<Header {...props} />);
+      expect(component.find('#pluginGlobalBanner').exists()).toBeTruthy();
+    });
+
+    it('does not render banner container when banner plugin is disabled', () => {
+      const injectedMetadata = ({
+        getPlugins: jest.fn().mockReturnValue([
+          {
+            id: 'banner',
+            config: {
+              enabled: false,
+            },
+          },
+        ]),
+      } as unknown) as InjectedMetadataStart;
+
+      const props = {
+        ...mockProps(),
+        injectedMetadata,
+      };
+
+      const component = mountWithIntl(<Header {...props} />);
+      expect(component.find('#pluginGlobalBanner').exists()).toBeFalsy();
+    });
+
+    it('does not render banner container when banner plugin is not configured', () => {
+      const injectedMetadata = ({
+        getPlugins: jest.fn().mockReturnValue([
+          {
+            id: 'other-plugin',
+            config: {},
+          },
+        ]),
+      } as unknown) as InjectedMetadataStart;
+
+      const props = {
+        ...mockProps(),
+        injectedMetadata,
+      };
+
+      const component = mountWithIntl(<Header {...props} />);
+      expect(component.find('#pluginGlobalBanner').exists()).toBeFalsy();
+    });
   });
 });

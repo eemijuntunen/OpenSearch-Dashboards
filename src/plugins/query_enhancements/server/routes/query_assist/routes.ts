@@ -22,14 +22,17 @@ export function registerQueryAssistRoutes(router: IRouter) {
       },
     },
     async (context, request, response) => {
+      // @ts-expect-error TS2339 TODO(ts-error): fixme
       const config = await context.query_assist.configPromise;
       const client =
+        // @ts-expect-error TS2339 TODO(ts-error): fixme
         context.query_assist.dataSourceEnabled && request.query.dataSourceId
           ? await context.dataSource.opensearch.getClient(request.query.dataSourceId)
           : context.core.opensearch.client.asCurrentUser;
       const configuredLanguages: string[] = [];
       try {
         await Promise.allSettled(
+          // @ts-expect-error TS7006 TODO(ts-error): fixme
           config.queryAssist.supportedLanguages.map((languageConfig) =>
             // if the call does not throw any error, then the agent is properly configured
             getAgentIdByConfig(client, languageConfig.agentConfig).then(() =>
@@ -57,8 +60,10 @@ export function registerQueryAssistRoutes(router: IRouter) {
       },
     },
     async (context, request, response) => {
+      // @ts-expect-error TS2339 TODO(ts-error): fixme
       const config = await context.query_assist.configPromise;
       const languageConfig = config.queryAssist.supportedLanguages.find(
+        // @ts-expect-error TS7006 TODO(ts-error): fixme
         (c) => c.language === request.body.language
       );
       if (!languageConfig) return response.badRequest({ body: 'Unsupported language' });
@@ -78,13 +83,16 @@ export function registerQueryAssistRoutes(router: IRouter) {
         return response.ok({ body: responseBody });
       } catch (error) {
         if (isResponseError(error)) {
-          if (error.statusCode === 400 && error.body.includes(ERROR_DETAILS.GUARDRAILS_TRIGGERED))
+          if (
+            error.statusCode === 400 &&
+            // on opensearch >= 2.17, error.body is an object https://github.com/opensearch-project/ml-commons/pull/2858
+            JSON.stringify(error.body).includes(ERROR_DETAILS.GUARDRAILS_TRIGGERED)
+          )
             return response.badRequest({ body: ERROR_DETAILS.GUARDRAILS_TRIGGERED });
-          return response.badRequest({
-            body:
-              typeof error.meta.body === 'string'
-                ? error.meta.body
-                : JSON.stringify(error.meta.body),
+          return response.custom({
+            statusCode: error.statusCode,
+            // for consistency, frontend will always receive the actual error in error.body.message as a JSON string
+            body: typeof error.body === 'string' ? error.body : JSON.stringify(error.body),
           });
         }
         return response.custom({ statusCode: error.statusCode || 500, body: error.message });

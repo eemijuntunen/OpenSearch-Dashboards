@@ -48,6 +48,7 @@ export type QuerySuggestionGetFn = (
 export interface QuerySuggestionGetFnArgs {
   language: string;
   indexPattern: IndexPattern | undefined;
+  datasetType?: string;
   query: string;
   selectionStart: number;
   selectionEnd: number;
@@ -79,7 +80,9 @@ export interface MonacoCompatibleQuerySuggestion
   text: string;
   detail: string;
   insertText?: string;
+  insertTextRules?: monaco.languages.CompletionItemInsertTextRule;
   replacePosition?: monaco.Range;
+  sortText?: string;
 }
 
 /** @public **/

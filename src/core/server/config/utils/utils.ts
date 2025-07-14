@@ -26,9 +26,7 @@ export const pathToString = (configIdentifier: ConfigIdentifier) => {
   return _.snakeCase(name);
 };
 
-export const createApiResponse = <TResponse = Record<string, any>>(
-  opts: Partial<ApiResponse> = {}
-): ApiResponse<TResponse> => {
+export const createApiResponse = (opts: Partial<ApiResponse> = {}): ApiResponse => {
   return {
     body: {} as any,
     statusCode: 200,
@@ -73,6 +71,25 @@ export const createLocalStore = (logger: Logger, request: Request, headers: stri
 
 export const getDynamicConfigIndexName = (n: number) => {
   return `${DYNAMIC_APP_CONFIG_INDEX_PREFIX}_${n}`;
+};
+
+/**
+ * Basic check to ensure the index matches the pattern (will pass for ${DYNAMIC_APP_CONFIG_INDEX_PREFIX}_0)
+ *
+ * @param index
+ * @returns
+ */
+export const isDynamicConfigIndex = (index: string) => {
+  const regex = new RegExp(`^${DYNAMIC_APP_CONFIG_INDEX_PREFIX}_\\d+$`);
+  return regex.test(index);
+};
+
+export const extractVersionFromDynamicConfigIndex = (index: string) => {
+  if (!isDynamicConfigIndex(index)) {
+    return 0;
+  }
+  const indexSuffix = index.replace(`${DYNAMIC_APP_CONFIG_INDEX_PREFIX}_`, '');
+  return Number(indexSuffix);
 };
 
 export const createLocalStoreFromOsdRequest = (

@@ -92,6 +92,8 @@ setupMock.uiSettings.get.mockImplementation((key: string) => {
       return { pause: false, value: 0 };
     case UI_SETTINGS.QUERY_ENHANCEMENTS_ENABLED:
       return false;
+    case UI_SETTINGS.SEARCH_MAX_RECENT_DATASETS:
+      return 4;
     default:
       throw new Error(`sync_query test: not mocked uiSetting: ${key}`);
   }
@@ -109,6 +111,7 @@ describe('connect_storage_to_query_state', () => {
   let indexPatternsMock: IndexPatternsService;
   let history: History;
   let gF1: Filter;
+  // @ts-expect-error TS6133 TODO(ts-error): fixme
   let gF2: Filter;
   let aF1: Filter;
   let aF2: Filter;
@@ -121,13 +124,18 @@ describe('connect_storage_to_query_state', () => {
     queryService.setup({
       uiSettings: setupMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
+      sessionStorage: new DataStorage(window.sessionStorage, 'opensearch_dashboards.'),
       defaultSearchInterceptor: mockSearchInterceptor,
+      application: setupMock.application,
+      notifications: setupMock.notifications,
     });
     queryServiceStart = queryService.start({
-      uiSettings: setupMock.uiSettings,
+      uiSettings: startMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
       savedObjectsClient: startMock.savedObjects.client,
       indexPatterns: indexPatternsMock,
+      application: startMock.application,
+      notifications: startMock.notifications,
     });
     indexPatternsMock = ({
       get: jest.fn(),
@@ -229,16 +237,21 @@ describe('connect_to_global_state', () => {
   beforeEach(() => {
     const queryService = new QueryService();
     mockSearchInterceptor = {} as jest.Mocked<ISearchInterceptor>;
+    // @ts-expect-error TS2345 TODO(ts-error): fixme
     queryService.setup({
       uiSettings: setupMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
+      sessionStorage: new DataStorage(window.sessionStorage, 'opensearch_dashboards.'),
       defaultSearchInterceptor: mockSearchInterceptor,
+      application: setupMock.application,
     });
+    // @ts-expect-error TS2345 TODO(ts-error): fixme
     queryServiceStart = queryService.start({
       uiSettings: setupMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
       savedObjectsClient: startMock.savedObjects.client,
       indexPatterns: indexPatternsMock,
+      application: startMock.application,
     });
     filterManager = queryServiceStart.filterManager;
     timeFilter = queryServiceStart.timefilter.timefilter;
@@ -470,16 +483,21 @@ describe('connect_to_app_state', () => {
   beforeEach(() => {
     const queryService = new QueryService();
     mockSearchInterceptor = {} as jest.Mocked<ISearchInterceptor>;
+    // @ts-expect-error TS2345 TODO(ts-error): fixme
     queryService.setup({
       uiSettings: setupMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
+      sessionStorage: new DataStorage(window.sessionStorage, 'opensearch_dashboards.'),
       defaultSearchInterceptor: mockSearchInterceptor,
+      application: setupMock.application,
     });
+    // @ts-expect-error TS2345 TODO(ts-error): fixme
     queryServiceStart = queryService.start({
       uiSettings: setupMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
       savedObjectsClient: startMock.savedObjects.client,
       indexPatterns: indexPatternsMock,
+      application: startMock.application,
     });
     filterManager = queryServiceStart.filterManager;
     indexPatternsMock = ({
@@ -656,16 +674,21 @@ describe('filters with different state', () => {
   beforeEach(() => {
     const queryService = new QueryService();
     mockSearchInterceptor = {} as jest.Mocked<ISearchInterceptor>;
+    // @ts-expect-error TS2345 TODO(ts-error): fixme
     queryService.setup({
       uiSettings: setupMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
+      sessionStorage: new DataStorage(window.sessionStorage, 'opensearch_dashboards.'),
       defaultSearchInterceptor: mockSearchInterceptor,
+      application: setupMock.application,
     });
+    // @ts-expect-error TS2345 TODO(ts-error): fixme
     queryServiceStart = queryService.start({
       uiSettings: setupMock.uiSettings,
       storage: new DataStorage(window.localStorage, 'opensearch_dashboards.'),
       savedObjectsClient: startMock.savedObjects.client,
       indexPatterns: indexPatternsMock,
+      application: startMock.application,
     });
     filterManager = queryServiceStart.filterManager;
     indexPatternsMock = ({

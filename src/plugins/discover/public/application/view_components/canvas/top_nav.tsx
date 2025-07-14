@@ -10,9 +10,10 @@ import { EuiButtonIcon, EuiFlexGroup, EuiFlexItem, EuiToolTip } from '@elastic/e
 import { i18n } from '@osd/i18n';
 import { AppMountParameters } from '../../../../../../core/public';
 import {
-  connectStorageToQueryState,
+  useConnectStorageToQueryState,
   opensearchFilters,
   QueryStatus,
+  useSyncQueryStateWithUrl,
 } from '../../../../../data/public';
 import { useOpenSearchDashboards } from '../../../../../opensearch_dashboards_react/public';
 import { PLUGIN_ID } from '../../../../common';
@@ -59,21 +60,30 @@ export const TopNav = ({ opts, showSaveQuery, isEnhancementsEnabled }: TopNavPro
     uiSettings,
   } = services;
 
+  const { startSyncingQueryStateWithUrl } = useSyncQueryStateWithUrl(
+    data.query,
+    osdUrlStateStorage
+  );
   const showActionsInGroup = uiSettings.get('home:useNewHomePage');
 
   const topNavLinks = savedSearch
-    ? getTopNavLinks(services, inspectorAdapters, savedSearch, isEnhancementsEnabled)
+    ? getTopNavLinks(
+        services,
+        inspectorAdapters,
+        savedSearch,
+        startSyncingQueryStateWithUrl,
+        isEnhancementsEnabled
+      )
     : [];
 
-  connectStorageToQueryState(
-    services.data.query,
-    osdUrlStateStorage,
-    {
+  const syncConfig = useMemo(() => {
+    return {
       filters: opensearchFilters.FilterStateStore.APP_STATE,
       query: true,
-    },
-    uiSettings
-  );
+    };
+  }, []);
+
+  useConnectStorageToQueryState(services.data.query, osdUrlStateStorage, syncConfig);
 
   useEffect(() => {
     const subscription = data$.subscribe((queryData) => {
@@ -83,6 +93,10 @@ export const TopNav = ({ opts, showSaveQuery, isEnhancementsEnabled }: TopNavPro
       };
       setQueryStatus(result);
     });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [data$]);
 
   useEffect(() => {
@@ -90,16 +104,9 @@ export const TopNav = ({ opts, showSaveQuery, isEnhancementsEnabled }: TopNavPro
     const initializeDataset = async () => {
       await data.indexPatterns.ensureDefaultIndexPattern();
       const defaultIndexPattern = await data.indexPatterns.getDefault();
-      // TODO: ROCKY do we need this?
-      // const queryString = data.query.queryString;
-      // const defaultDataset = queryString.getDatasetService().getDefault();
-
       if (!isMounted) return;
 
       setIndexPatterns(defaultIndexPattern ? [defaultIndexPattern] : undefined);
-      // if (defaultDataset) {
-      //   datasetManager.setDataset(defaultDataset);
-      // }
     };
 
     initializeDataset();
@@ -146,12 +153,17 @@ export const TopNav = ({ opts, showSaveQuery, isEnhancementsEnabled }: TopNavPro
         createPortal(
           <EuiFlexGroup gutterSize="m">
             {topNavLinks.map((topNavLink) => (
+              // @ts-expect-error TS2339 TODO(ts-error): fixme
               <EuiFlexItem grow={false} key={topNavLink.id}>
+                {/* @ts-expect-error TS2339 TODO(ts-error): fixme */}
                 <EuiToolTip position="bottom" content={topNavLink.label}>
                   <EuiButtonIcon
+                    // @ts-expect-error TS7006 TODO(ts-error): fixme
                     onClick={(event) => {
+                      // @ts-expect-error TS2722, TS2554 TODO(ts-error): fixme
                       topNavLink.run(event.currentTarget);
                     }}
+                    // @ts-expect-error TS2339 TODO(ts-error): fixme
                     iconType={topNavLink.iconType}
                     aria-label={topNavLink.ariaLabel}
                   />
@@ -159,6 +171,7 @@ export const TopNav = ({ opts, showSaveQuery, isEnhancementsEnabled }: TopNavPro
               </EuiFlexItem>
             ))}
           </EuiFlexGroup>,
+          // @ts-expect-error TS2532, TS2345 TODO(ts-error): fixme
           opts.optionalRef.topLinkRef.current
         )}
       <TopNavMenu
@@ -173,10 +186,12 @@ export const TopNav = ({ opts, showSaveQuery, isEnhancementsEnabled }: TopNavPro
         onQuerySubmit={opts.onQuerySubmit}
         savedQueryId={state.savedQuery}
         onSavedQueryIdChange={updateSavedQueryId}
+        datasetSelectorRef={opts?.optionalRef?.datasetSelectorRef}
         datePickerRef={opts?.optionalRef?.datePickerRef}
         groupActions={showActionsInGroup}
         screenTitle={screenTitle}
         queryStatus={queryStatus}
+        showQueryBar={!!opts?.optionalRef?.datasetSelectorRef}
       />
     </>
   );

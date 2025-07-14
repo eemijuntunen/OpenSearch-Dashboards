@@ -93,6 +93,7 @@ export interface EmbeddableSetup {
   setCustomEmbeddableFactoryProvider: (customProvider: EmbeddableFactoryProvider) => void;
 }
 
+// @ts-expect-error TS2344 TODO(ts-error): fixme
 export interface EmbeddableStart extends PersistableState<EmbeddableInput> {
   getEmbeddableFactory: <
     I extends EmbeddableInput = EmbeddableInput,
@@ -194,7 +195,12 @@ export class EmbeddablePublicPlugin implements Plugin<EmbeddableSetup, Embeddabl
         notifications={core.notifications}
         application={core.application}
         inspector={inspector}
-        SavedObjectFinder={getSavedObjectFinder(core.savedObjects, core.uiSettings)}
+        SavedObjectFinder={getSavedObjectFinder(
+          core.savedObjects,
+          core.uiSettings,
+          data,
+          core.application
+        )}
       />
     );
 

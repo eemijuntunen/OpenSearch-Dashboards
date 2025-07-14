@@ -53,6 +53,8 @@ import {
   UiSettingsPublicToCommon,
 } from './index_patterns';
 import {
+  setApplication,
+  setUseNewSavedQueriesUI,
   setFieldFormats,
   setIndexPatterns,
   setNotifications,
@@ -91,8 +93,11 @@ import { DefaultDslDataSource } from './data_sources/default_datasource';
 import { DEFAULT_DATA_SOURCE_TYPE } from './data_sources/constants';
 import { getSuggestions as getSQLSuggestions } from './antlr/opensearch_sql/code_completion';
 import { getSuggestions as getDQLSuggestions } from './antlr/dql/code_completion';
-import { getSuggestions as getPPLSuggestions } from './antlr/opensearch_ppl/code_completion';
-import { createStorage, DataStorage } from '../common';
+import {
+  getDefaultSuggestions as getPPLSuggestions,
+  getSimplifiedPPLSuggestions,
+} from './antlr/opensearch_ppl/code_completion';
+import { createStorage, DataStorage, UI_SETTINGS } from '../common';
 
 declare module '../../ui_actions/public' {
   export interface ActionContextMapping {
@@ -117,6 +122,7 @@ export class DataPublicPlugin
   private readonly queryService: QueryService;
   private readonly storage: DataStorage;
   private readonly sessionStorage: DataStorage;
+  private readonly config: ConfigSchema;
 
   constructor(initializerContext: PluginInitializerContext<ConfigSchema>) {
     this.searchService = new SearchService(initializerContext);
@@ -129,6 +135,7 @@ export class DataPublicPlugin
       engine: window.sessionStorage,
       prefix: 'opensearchDashboards.',
     });
+    this.config = initializerContext.config.get();
   }
 
   public setup(
@@ -150,9 +157,12 @@ export class DataPublicPlugin
       storage: this.storage,
       sessionStorage: this.sessionStorage,
       defaultSearchInterceptor: searchService.getDefaultSearchInterceptor(),
+      application: core.application,
+      notifications: core.notifications,
     });
 
-    uiActions.registerAction(
+    uiActions.addTriggerAction(
+      APPLY_FILTER_TRIGGER,
       createFilterAction(queryService.filterManager, queryService.timefilter.timefilter)
     );
 
@@ -174,10 +184,15 @@ export class DataPublicPlugin
     autoComplete.addQuerySuggestionProvider('SQL', getSQLSuggestions);
     autoComplete.addQuerySuggestionProvider('kuery', getDQLSuggestions);
     autoComplete.addQuerySuggestionProvider('PPL', getPPLSuggestions);
+    autoComplete.addQuerySuggestionProvider('PPL_Simplified', getSimplifiedPPLSuggestions); // Support implicit PPL queries that don't necessarily start with source = datasetName
+
+    const useNewSavedQueriesUI =
+      core.uiSettings.get(UI_SETTINGS.QUERY_ENHANCEMENTS_ENABLED) &&
+      this.config.savedQueriesNewUI.enabled;
+    setUseNewSavedQueriesUI(useNewSavedQueriesUI);
 
     return {
-      // TODO: MQL
-      autocomplete: this.autocomplete.setup(core),
+      autocomplete: autoComplete,
       search: searchService,
       fieldFormats: this.fieldFormatsService.setup(core),
       query: queryService,
@@ -190,10 +205,19 @@ export class DataPublicPlugin
   }
 
   public start(core: CoreStart, { uiActions }: DataStartDependencies): DataPublicPluginStart {
-    const { uiSettings, http, notifications, savedObjects, overlays, application } = core;
+    const {
+      uiSettings,
+      http,
+      notifications,
+      savedObjects,
+      overlays,
+      application,
+      workspaces,
+    } = core;
     setNotifications(notifications);
     setOverlays(overlays);
     setUiSettings(uiSettings);
+    setApplication(application);
 
     const fieldFormats = this.fieldFormatsService.start();
     setFieldFormats(fieldFormats);
@@ -216,6 +240,12 @@ export class DataPublicPlugin
         notifications.toasts,
         application.navigateToApp
       ),
+      // If workspace is enabled, only workspace owner/OSD admin can update ui setting.
+      ...(application.capabilities.workspaces.enabled && {
+        canUpdateUiSetting:
+          workspaces?.currentWorkspace$.getValue()?.owner ||
+          application.capabilities?.dashboards?.isDashboardAdmin !== false,
+      }),
     });
     setIndexPatterns(indexPatterns);
 
@@ -224,6 +254,8 @@ export class DataPublicPlugin
       savedObjectsClient: savedObjects.client,
       uiSettings,
       indexPatterns,
+      application: core.application,
+      notifications,
     });
     setQueryService(query);
 

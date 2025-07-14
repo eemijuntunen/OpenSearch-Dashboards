@@ -4,9 +4,10 @@
  */
 
 import { I18nProvider } from '@osd/i18n/react';
-import { fireEvent, render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import React, { ComponentProps } from 'react';
 import { SuggestionsComponentProps } from '../../../../data/public/ui/typeahead/suggestions_component';
+import { AgentError } from '../utils';
 import { QueryAssistInput } from './query_assist_input';
 
 jest.mock('../../services', () => ({
@@ -37,7 +38,11 @@ const renderQueryAssistInput = (overrideProps: Partial<QueryAssistInputProps> = 
     QueryAssistInputProps,
     Partial<QueryAssistInputProps>
   >(
-    { inputRef: { current: null }, persistedLog: mockPersistedLog, isDisabled: false },
+    {
+      inputRef: { current: null },
+      persistedLog: mockPersistedLog,
+      isDisabled: false,
+    },
     overrideProps
   );
   const component = render(
@@ -72,5 +77,27 @@ describe('<QueryAssistInput /> spec', () => {
     const suggestionButton = component.getByText('mock suggestion 1');
     fireEvent.click(suggestionButton);
     expect(inputElement.value).toBe('mock suggestion 1');
+  });
+
+  it('should show error badge if there is an error', async () => {
+    renderQueryAssistInput({
+      error: new AgentError({
+        error: { type: 'mock-type', reason: 'mock-reason', details: 'mock-details' },
+        status: 303,
+      }),
+    });
+    expect(screen.getByTestId('queryAssistErrorBadge')).toBeInTheDocument();
+  });
+
+  it('should close suggestions after submission', () => {
+    const { component } = renderQueryAssistInput();
+    const inputElement = component.getByTestId('query-assist-input-field-text') as HTMLInputElement;
+    fireEvent.click(inputElement);
+    fireEvent.keyDown(inputElement, { key: 'm', code: 'KeyM' });
+    const suggestionButton = component.getByText('mock suggestion 1');
+    fireEvent.click(suggestionButton);
+    fireEvent.keyDown(inputElement, { key: 'Enter', code: 'Enter' });
+    const suggestionsComponent = component.getByTestId('suggestions-component');
+    expect(suggestionsComponent).toBeEmptyDOMElement();
   });
 });

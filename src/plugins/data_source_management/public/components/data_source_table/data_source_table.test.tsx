@@ -10,10 +10,18 @@ import { DataSourceTable } from './data_source_table';
 import { mount, ReactWrapper } from 'enzyme';
 import { RouteComponentProps } from 'react-router-dom';
 import { wrapWithIntl } from 'test_utils/enzyme_helpers';
-import { ScopedHistory } from 'opensearch-dashboards/public';
+import { ScopedHistory, WorkspaceObject } from 'opensearch-dashboards/public';
 import { scopedHistoryMock } from '../../../../../core/public/mocks';
 import { OpenSearchDashboardsContextProvider } from '../../../../opensearch_dashboards_react/public';
-import { getMappedDataSources, mockManagementPlugin } from '../../mocks';
+import {
+  getDataSourcesWithCrossClusterConnections,
+  getMappedDataSources,
+  getMappedDataSourcesWithEmptyDescription,
+  mockManagementPlugin,
+} from '../../mocks';
+import { BehaviorSubject } from 'rxjs';
+import { DEFAULT_DATA_SOURCE_UI_SETTINGS_ID } from '../constants';
+import { UiSettingScope } from '../../../../../core/public';
 
 const deleteButtonIdentifier = '[data-test-subj="deleteDataSourceConnections"]';
 const tableIdentifier = 'EuiInMemoryTable';
@@ -26,7 +34,16 @@ const emptyStateIdentifier = '[data-test-subj="datasourceTableEmptyState"]';
 describe('DataSourceTable', () => {
   const mockedContext = {
     ...mockManagementPlugin.createDataSourceManagementContext(),
-    application: { capabilities: { dataSource: { canManage: true } } },
+    application: {
+      capabilities: {
+        dataSource: {
+          canManage: true,
+        },
+        dashboards: {
+          isDashboardAdmin: false,
+        },
+      },
+    },
   };
   const uiSettings = mockedContext.uiSettings;
   let component: ReactWrapper<any, Readonly<{}>, React.Component<{}, {}, any>>;
@@ -62,7 +79,7 @@ describe('DataSourceTable', () => {
   describe('should get datasources successful', () => {
     beforeEach(async () => {
       spyOn(utils, 'getDataSources').and.returnValue(Promise.resolve(getMappedDataSources));
-      spyOn(uiSettings, 'get').and.returnValue('test1');
+      spyOn(uiSettings, 'get$').and.returnValue(new BehaviorSubject('test1'));
       await act(async () => {
         component = await mount(
           wrapWithIntl(
@@ -96,7 +113,7 @@ describe('DataSourceTable', () => {
       });
       component.update();
       // @ts-ignore
-      expect(component.find(tableColumnHeaderIdentifier).first().props().isSorted).toBe(true);
+      expect(component.find(tableColumnHeaderIdentifier).at(1).props().isSorted).toBe(true);
       expect(uiSettings.get).toHaveBeenCalled();
     });
 
@@ -202,6 +219,316 @@ describe('DataSourceTable', () => {
     test('should render empty table', () => {
       expect(component).toMatchSnapshot();
       expect(component.find(emptyStateIdentifier).exists()).toBe(true);
+    });
+  });
+
+  describe('data source table with actions', () => {
+    beforeEach(() => {
+      spyOn(utils, 'getDataSources').and.returnValue(Promise.resolve(getMappedDataSources));
+      spyOn(uiSettings, 'get$').and.returnValue(new BehaviorSubject('test1'));
+    });
+
+    test('should display set as default action', async () => {
+      const currentWorkspace$ = mockedContext.workspaces.currentWorkspace$;
+      // Mock that there is current workspace
+      mockedContext.workspaces.currentWorkspace$ = new BehaviorSubject<WorkspaceObject | null>({
+        id: 'workspace-id',
+        name: 'workspace name',
+      });
+
+      await act(async () => {
+        component = mount(
+          wrapWithIntl(
+            <DataSourceTable
+              history={history}
+              location={({} as unknown) as RouteComponentProps['location']}
+              match={({} as unknown) as RouteComponentProps['match']}
+            />
+          ),
+          {
+            wrappingComponent: OpenSearchDashboardsContextProvider,
+            wrappingComponentProps: {
+              services: mockedContext,
+            },
+          }
+        );
+      });
+      component.update();
+
+      // The set as default action button should be displayed when inside a workspace
+      expect(
+        component
+          .find('[data-test-subj="dataSourcesManagement-dataSourceTable-setAsDefaultButton"]')
+          .exists()
+      ).toBe(true);
+
+      // click setAsDefault button should set the data source as default
+      component
+        .find('[data-test-subj="dataSourcesManagement-dataSourceTable-setAsDefaultButton"]')
+        .first()
+        .simulate('click');
+      expect(uiSettings.set).toBeCalledWith(
+        DEFAULT_DATA_SOURCE_UI_SETTINGS_ID,
+        'alpha-test',
+        UiSettingScope.WORKSPACE
+      );
+
+      // reset to original value
+      mockedContext.workspaces.currentWorkspace$ = currentWorkspace$;
+    });
+
+    test('should NOT display set as default action', async () => {
+      const currentWorkspace$ = mockedContext.workspaces.currentWorkspace$;
+      // Mock that there is NO current workspace
+      mockedContext.workspaces.currentWorkspace$ = new BehaviorSubject<WorkspaceObject | null>(
+        null
+      );
+
+      await act(async () => {
+        component = mount(
+          wrapWithIntl(
+            <DataSourceTable
+              history={history}
+              location={({} as unknown) as RouteComponentProps['location']}
+              match={({} as unknown) as RouteComponentProps['match']}
+            />
+          ),
+          {
+            wrappingComponent: OpenSearchDashboardsContextProvider,
+            wrappingComponentProps: {
+              services: mockedContext,
+            },
+          }
+        );
+      });
+      component.update();
+
+      // The set as default action button should NOT be displayed when outside of workspace
+      expect(
+        component
+          .find('[data-test-subj="dataSourcesManagement-dataSourceTable-setAsDefaultButton"]')
+          .exists()
+      ).toBe(false);
+
+      // reset to original value
+      mockedContext.workspaces.currentWorkspace$ = currentWorkspace$;
+    });
+
+    test('should display dissociate action', async () => {
+      const currentWorkspace$ = mockedContext.workspaces.currentWorkspace$;
+      const capabilities = mockedContext.application.capabilities;
+      // Mock that there is current workspace
+      mockedContext.workspaces.currentWorkspace$ = new BehaviorSubject<WorkspaceObject | null>({
+        id: 'workspace-id',
+        name: 'workspace name',
+      });
+      // Mock that the current user is dashboard admin
+      mockedContext.application.capabilities = {
+        dataSource: { canManage: false },
+        dashboards: { isDashboardAdmin: true },
+      };
+
+      await act(async () => {
+        component = mount(
+          wrapWithIntl(
+            <DataSourceTable
+              history={history}
+              location={({} as unknown) as RouteComponentProps['location']}
+              match={({} as unknown) as RouteComponentProps['match']}
+            />
+          ),
+          {
+            wrappingComponent: OpenSearchDashboardsContextProvider,
+            wrappingComponentProps: {
+              services: mockedContext,
+            },
+          }
+        );
+      });
+      component.update();
+
+      // The dissociate data source action should be displayed
+      expect(
+        component
+          .find('[data-test-subj="dataSourcesManagement-dataSourceTable-dissociateButton"]')
+          .exists()
+      ).toBe(true);
+
+      // reset to original value
+      mockedContext.workspaces.currentWorkspace$ = currentWorkspace$;
+      mockedContext.application.capabilities = capabilities;
+    });
+
+    test('should NOT display dissociate action for non dashboard admin', async () => {
+      const currentWorkspace$ = mockedContext.workspaces.currentWorkspace$;
+      const capabilities = mockedContext.application.capabilities;
+      // Mock that there is current workspace
+      mockedContext.workspaces.currentWorkspace$ = new BehaviorSubject<WorkspaceObject | null>({
+        id: 'workspace-id',
+        name: 'workspace name',
+      });
+      // Mock that the current user is not dashboard admin
+      mockedContext.application.capabilities = {
+        ...capabilities,
+        dashboards: { isDashboardAdmin: false },
+      };
+
+      await act(async () => {
+        component = mount(
+          wrapWithIntl(
+            <DataSourceTable
+              history={history}
+              location={({} as unknown) as RouteComponentProps['location']}
+              match={({} as unknown) as RouteComponentProps['match']}
+            />
+          ),
+          {
+            wrappingComponent: OpenSearchDashboardsContextProvider,
+            wrappingComponentProps: {
+              services: mockedContext,
+            },
+          }
+        );
+      });
+      component.update();
+
+      // The dissociate data source action should not be displayed for non-admin user
+      expect(
+        component
+          .find('[data-test-subj="dataSourcesManagement-dataSourceTable-dissociateButton"]')
+          .exists()
+      ).toBe(false);
+
+      // reset to original value
+      mockedContext.workspaces.currentWorkspace$ = currentWorkspace$;
+      mockedContext.application.capabilities = capabilities;
+    });
+
+    test('should NOT display dissociate action if not in a workspace', async () => {
+      const currentWorkspace$ = mockedContext.workspaces.currentWorkspace$;
+      const capabilities = mockedContext.application.capabilities;
+      // Mock that there is no current workspace
+      mockedContext.workspaces.currentWorkspace$ = new BehaviorSubject<WorkspaceObject | null>(
+        null
+      );
+      // Mock that the current user is dashboard admin
+      mockedContext.application.capabilities = {
+        ...capabilities,
+        dataSource: { canManage: true },
+      };
+
+      await act(async () => {
+        component = mount(
+          wrapWithIntl(
+            <DataSourceTable
+              history={history}
+              location={({} as unknown) as RouteComponentProps['location']}
+              match={({} as unknown) as RouteComponentProps['match']}
+            />
+          ),
+          {
+            wrappingComponent: OpenSearchDashboardsContextProvider,
+            wrappingComponentProps: {
+              services: mockedContext,
+            },
+          }
+        );
+      });
+      component.update();
+
+      // The dissociate data source action should not be display when not inside a workspace
+      expect(
+        component
+          .find('[data-test-subj="dataSourcesManagement-dataSourceTable-dissociateButton"]')
+          .exists()
+      ).toBe(false);
+
+      // reset to original value
+      mockedContext.workspaces.currentWorkspace$ = currentWorkspace$;
+      mockedContext.application.capabilities = capabilities;
+    });
+  });
+
+  describe('should handle datasources with empty description correctly', () => {
+    beforeEach(async () => {
+      spyOn(utils, 'getDataSources').and.returnValue(
+        Promise.resolve(getMappedDataSourcesWithEmptyDescription)
+      );
+      spyOn(uiSettings, 'get$').and.returnValue(new BehaviorSubject('test1'));
+      await act(async () => {
+        component = await mount(
+          wrapWithIntl(
+            <DataSourceTable
+              history={history}
+              location={({} as unknown) as RouteComponentProps['location']}
+              match={({} as unknown) as RouteComponentProps['match']}
+            />
+          ),
+          {
+            wrappingComponent: OpenSearchDashboardsContextProvider,
+            wrappingComponentProps: {
+              services: mockedContext,
+            },
+          }
+        );
+      });
+      component.update();
+    });
+
+    it('should render normally', () => {
+      expect(() => component).not.toThrow();
+      expect(component).toMatchSnapshot();
+      expect(utils.getDataSources).toHaveBeenCalled();
+
+      // assertion for three row and description placeholder to be visible
+      expect(component.find('.euiTableRow')).toHaveLength(3);
+      const descriptionPlaceholders = component.find('.euiText');
+      expect(descriptionPlaceholders).toHaveLength(6); // since both description and related connections have no values
+      descriptionPlaceholders.forEach((node) => {
+        expect(node.children().text()).toBe('—');
+      });
+    });
+  });
+
+  describe('should handle opensearch remote clusters', () => {
+    beforeEach(async () => {
+      spyOn(utils, 'getDataSources').and.returnValue(
+        Promise.resolve(getDataSourcesWithCrossClusterConnections)
+      );
+      spyOn(utils, 'fetchDataSourceConnections').and.returnValue(
+        Promise.resolve(getDataSourcesWithCrossClusterConnections)
+      );
+      await act(async () => {
+        component = await mount(
+          wrapWithIntl(
+            <DataSourceTable
+              history={history}
+              location={({} as unknown) as RouteComponentProps['location']}
+              match={({} as unknown) as RouteComponentProps['match']}
+            />
+          ),
+          {
+            wrappingComponent: OpenSearchDashboardsContextProvider,
+            wrappingComponentProps: {
+              services: mockedContext,
+            },
+          }
+        );
+      });
+      component.update();
+    });
+
+    it('should show a arrow which expands to show connected remote clusters for datasources with remote clusters', () => {
+      expect(component.find('[data-test-subj="expandCollapseButton"]').exists()).toBe(true);
+
+      // validate that we are initially not able to see the remote clusters
+      expect(component.text()).not.toContain('connectionAlias1');
+
+      // click the expand button corresponding to the datasource containing remote clusters
+      component.find('[data-test-subj="expandCollapseButton"]').first().simulate('click');
+
+      // validate that we are now able to see the remote clusters
+      expect(component.text()).toContain('connectionAlias1');
     });
   });
 });

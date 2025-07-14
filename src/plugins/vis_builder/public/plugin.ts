@@ -57,6 +57,7 @@ import {
 } from '../../opensearch_dashboards_utils/public';
 import { opensearchFilters } from '../../data/public';
 import { createRawDataVisFn } from './visualizations/vega/utils/expression_helper';
+import { VISBUILDER_ENABLE_VEGA_SETTING } from '../common/constants';
 
 export class VisBuilderPlugin
   implements
@@ -107,7 +108,7 @@ export class VisBuilderPlugin
 
     // Register Default Visualizations
     const typeService = this.typeService;
-    registerDefaultTypes(typeService.setup());
+    registerDefaultTypes(typeService.setup(), core.uiSettings.get(VISBUILDER_ENABLE_VEGA_SETTING));
     exp.registerFunction(createRawDataVisFn());
 
     // Register the plugin to core
@@ -201,12 +202,14 @@ export class VisBuilderPlugin
         visualizations: {
           docTypes: [VISBUILDER_SAVED_OBJECT],
           toListItem: ({ id, attributes, updated_at: updatedAt }) => ({
+            // @ts-expect-error TS2322 TODO(ts-error): fixme
             description: attributes?.description,
             editApp: PLUGIN_ID,
             editUrl: `${EDIT_PATH}/${encodeURIComponent(id)}`,
             icon: 'visBuilder',
             id,
             savedObjectType: VISBUILDER_SAVED_OBJECT,
+            // @ts-expect-error TS2322 TODO(ts-error): fixme
             title: attributes?.title,
             typeTitle: VIS_BUILDER_CHART_TYPE,
             updated_at: updatedAt,

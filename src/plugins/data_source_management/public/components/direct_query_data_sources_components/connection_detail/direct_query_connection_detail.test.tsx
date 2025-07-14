@@ -3,13 +3,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { render, screen, waitFor } from '@testing-library/react';
+import {
+  ApplicationStart,
+  HttpStart,
+  NotificationsStart,
+  SavedObjectsStart,
+} from 'opensearch-dashboards/public';
+import React from 'react';
 import { MemoryRouter, Route } from 'react-router-dom';
+import { coreMock } from '../../../../../../core/public/mocks';
+import { DataSourceSelectionService } from '../../../service/data_source_selection_service';
+import * as utils from '../../utils';
 import { DirectQueryDataConnectionDetail } from './direct_query_connection_detail';
-import { ApplicationStart, HttpStart, NotificationsStart } from 'opensearch-dashboards/public';
-import { isPluginInstalled } from '../../utils';
 
 jest.mock('../../../constants', () => ({
   DATACONNECTIONS_BASE: '/api/dataconnections',
@@ -59,29 +66,53 @@ jest.mock('../associated_object_management/associated_objects_tab', () => ({
 }));
 
 jest.mock('../associated_object_management/utils/associated_objects_tab_utils', () => ({
-  redirectToExplorerS3: jest.fn(),
+  redirectToDiscover: jest.fn(),
 }));
+
+const mockApplication = coreMock.createSetup().application;
+const mockUiSettings = coreMock.createSetup().uiSettings;
+const mockdataSourceSelection = new DataSourceSelectionService();
 
 jest.mock('../../utils', () => ({
   isPluginInstalled: jest.fn(),
+  getDataSourcesWithFields: jest.fn(),
+  getApplication: () => mockApplication,
+  getUiSettings: () => mockUiSettings,
+  getHideLocalCluster: () => ({ enabled: true }),
+  getDataSourceSelection: () => mockdataSourceSelection,
 }));
 
 const renderComponent = ({
   featureFlagStatus = false,
   http = {},
-  notifications = {},
+  notifications = {
+    toasts: {
+      addDanger: jest.fn(),
+    },
+  },
   application = {},
   setBreadcrumbs = jest.fn(),
+  savedObjects = {
+    client: {
+      find: jest.fn().mockResolvedValue({ saved_objects: [] }),
+    },
+  },
+  setHeaderActionMenu = jest.fn(),
 }) => {
   return render(
-    <MemoryRouter initialEntries={['/dataconnections/test']}>
+    <MemoryRouter initialEntries={['/dataconnections/test?dataSourceMDSId=test-mdsid']}>
       <Route path="/dataconnections/:dataSourceName">
         <DirectQueryDataConnectionDetail
           featureFlagStatus={featureFlagStatus}
           http={http as HttpStart}
+          // @ts-expect-error TS2352 TODO(ts-error): fixme
           notifications={notifications as NotificationsStart}
           application={application as ApplicationStart}
           setBreadcrumbs={setBreadcrumbs}
+          // @ts-expect-error TS2352 TODO(ts-error): fixme
+          savedObjects={savedObjects as SavedObjectsStart}
+          useNewUX={false}
+          setHeaderActionMenu={setHeaderActionMenu}
         />
       </Route>
     </MemoryRouter>
@@ -91,7 +122,7 @@ const renderComponent = ({
 describe('DirectQueryDataConnectionDetail', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    (isPluginInstalled as jest.Mock).mockResolvedValue(true);
+    (utils.isPluginInstalled as jest.Mock).mockResolvedValue(true);
   });
 
   test('renders without crashing', async () => {
@@ -287,5 +318,90 @@ describe('DirectQueryDataConnectionDetail', () => {
 
     expect(screen.getByText('Configure Integrations')).toBeInTheDocument();
     expect(screen.getByText('Installed Integrations')).toBeInTheDocument();
+  });
+
+  test('filters integrations by references when featureFlagStatus is true and dataSourceMDSId exists', async () => {
+    const mockHttp = {
+      get: jest.fn().mockImplementation((url) => {
+        if (url === '/api/integrations/store') {
+          return Promise.resolve({
+            data: {
+              hits: [
+                {
+                  dataSource: 'flint_test_default',
+                  references: [{ id: 'test-mdsid', name: 'Test Integration', type: 'data-source' }],
+                },
+                {
+                  dataSource: 'flint_test_default',
+                  references: [
+                    { id: 'other-mdsid', name: 'Other Integration', type: 'data-source' },
+                  ],
+                },
+              ],
+            },
+          });
+        } else {
+          return Promise.resolve({
+            allowedRoles: ['role1'],
+            description: 'Test description',
+            name: 'Test datasource',
+            connector: 'S3GLUE',
+            properties: {},
+            status: 'ACTIVE',
+          });
+        }
+      }),
+    };
+
+    const mockNotifications = {
+      toasts: {
+        addDanger: jest.fn(),
+      },
+    };
+
+    const mockSavedObjects = {
+      client: {
+        find: jest.fn().mockResolvedValue({
+          saved_objects: [
+            {
+              id: 'test-mdsid',
+              attributes: {
+                title: 'Test Data Source',
+              },
+            },
+          ],
+        }),
+      },
+    };
+
+    (utils.getDataSourcesWithFields as jest.Mock).mockResolvedValue([
+      {
+        id: 'test-mdsid',
+        attributes: {
+          title: 'Test Data Source',
+        },
+      },
+    ]);
+
+    renderComponent({
+      featureFlagStatus: true,
+      http: mockHttp,
+      notifications: mockNotifications,
+      savedObjects: mockSavedObjects,
+    });
+
+    await waitFor(() => expect(mockHttp.get).toHaveBeenCalledWith('/api/integrations/store'), {
+      timeout: 1000,
+    });
+
+    await waitFor(
+      () => {
+        const filteredIntegration = screen.queryByText('Configure Integrations');
+        expect(filteredIntegration).toBeInTheDocument();
+      },
+      { timeout: 1000 }
+    );
+
+    expect(mockNotifications.toasts.addDanger).not.toHaveBeenCalled();
   });
 });

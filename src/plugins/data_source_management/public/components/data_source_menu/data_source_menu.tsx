@@ -19,7 +19,14 @@ import {
 import { DataSourceSelectable } from '../data_source_selectable';
 
 export function DataSourceMenu<T>(props: DataSourceMenuProps<T>): ReactElement | null {
-  const { componentType, componentConfig, uiSettings, hideLocalCluster, application } = props;
+  const {
+    componentType,
+    componentConfig,
+    uiSettings,
+    hideLocalCluster,
+    application,
+    onManageDataSource,
+  } = props;
 
   function renderDataSourceView(config: DataSourceViewConfig): ReactElement | null {
     const {
@@ -74,6 +81,7 @@ export function DataSourceMenu<T>(props: DataSourceMenuProps<T>): ReactElement |
     } = config;
     return (
       <DataSourceSelectable
+        onManageDataSource={onManageDataSource}
         savedObjectsClient={savedObjects!}
         notifications={notifications!.toasts}
         onSelectedDataSources={onSelectedDataSources}
@@ -117,12 +125,16 @@ export function DataSourceMenu<T>(props: DataSourceMenuProps<T>): ReactElement |
   function renderLayout(): ReactElement | null {
     switch (componentType) {
       case DataSourceComponentType.DataSourceAggregatedView:
+        // @ts-expect-error TS2352 TODO(ts-error): fixme
         return renderDataSourceAggregatedView(componentConfig as DataSourceAggregatedViewConfig);
       case DataSourceComponentType.DataSourceSelectable:
+        // @ts-expect-error TS2352 TODO(ts-error): fixme
         return renderDataSourceSelectable(componentConfig as DataSourceSelectableConfig);
       case DataSourceComponentType.DataSourceView:
+        // @ts-expect-error TS2352 TODO(ts-error): fixme
         return renderDataSourceView(componentConfig as DataSourceViewConfig);
       case DataSourceComponentType.DataSourceMultiSelectable:
+        // @ts-expect-error TS2352 TODO(ts-error): fixme
         return renderDataSourceMultiSelectable(componentConfig as DataSourceMultiSelectableConfig);
       default:
         return null;

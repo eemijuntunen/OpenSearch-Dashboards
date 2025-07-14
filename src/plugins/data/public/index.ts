@@ -62,7 +62,15 @@ import {
 } from '../common';
 
 import { FilterLabel } from './ui';
-export { createEditor, DefaultInput, DQLBody, SingleLineInput } from './ui';
+export {
+  ACTION_BAR_BUTTONS_CONTAINER_ID,
+  createEditor,
+  DefaultInput,
+  DQLBody,
+  SingleLineInput,
+  DatasetSelector,
+  DatasetSelectorAppearance,
+} from './ui';
 
 import {
   generateFilters,
@@ -458,8 +466,10 @@ export { Filter, Query, RefreshInterval, TimeRange } from '../common';
 export {
   createSavedQueryService,
   connectStorageToQueryState,
+  useConnectStorageToQueryState,
   connectToQueryState,
   syncQueryStateWithUrl,
+  useSyncQueryStateWithUrl,
   QueryState,
   getDefaultQuery,
   FilterManager,
@@ -475,6 +485,7 @@ export {
   QueryControls,
   QueryResult,
   QueryStatus,
+  ResultStatus,
   SavedQuery,
   SavedQueryService,
   SavedQueryTimeFilter,
@@ -485,6 +496,8 @@ export {
   QueryStateChange,
   QueryStart,
   PersistedLog,
+  LanguageReference,
+  DatasetIndexedViewsService,
 } from './query';
 
 export { AggsStart } from './search/aggs';

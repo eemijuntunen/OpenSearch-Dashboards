@@ -58,9 +58,12 @@ import {
   CoreStart,
   IUiSettingsClient,
   SavedObjectsStart,
+  ApplicationStart,
 } from 'src/core/public';
 
 import { DataSourceAttributes } from 'src/plugins/data_source/common/data_sources';
+import { DataPublicPluginStart, LanguageServiceContract } from 'src/plugins/data/public';
+import { first } from 'rxjs/operators';
 import { getIndexPatternTitle } from '../../../data/common/index_patterns/utils';
 import { LISTING_LIMIT_SETTING } from '../../common';
 
@@ -76,6 +79,7 @@ export interface SavedObjectMetaData<T = unknown> {
 interface FinderAttributes {
   title?: string;
   type: string;
+  kibanaSavedObjectMeta?: string;
 }
 
 interface SavedObjectFinderState {
@@ -122,6 +126,8 @@ export type SavedObjectFinderProps = SavedObjectFinderFixedPage | SavedObjectFin
 export type SavedObjectFinderUiProps = {
   savedObjects: CoreStart['savedObjects'];
   uiSettings: CoreStart['uiSettings'];
+  data?: DataPublicPluginStart;
+  application?: CoreStart['application'];
 } & SavedObjectFinderProps;
 
 class SavedObjectFinderUi extends React.Component<
@@ -137,7 +143,39 @@ class SavedObjectFinderUi extends React.Component<
     showFilter: PropTypes.bool,
   };
 
+  public async getCurrentAppId() {
+    return (
+      (await this.props?.application?.currentAppId$?.pipe(first()).toPromise()) ??
+      Promise.resolve(undefined)
+    );
+  }
+
+  readonly languageService = this.props.data?.query?.queryString?.getLanguageService();
   private isComponentMounted: boolean = false;
+
+  private isSavedSearchLanguageSupported(
+    languageId?: string,
+    currentAppId?: string,
+    languageService?: LanguageServiceContract
+  ) {
+    if (!languageId || !currentAppId || !languageService) {
+      return true;
+    }
+    const supportedInApp = languageService
+      ?.getLanguage(languageId)
+      ?.supportedAppNames?.includes(currentAppId);
+    // If the current app id is explore, although explore app might not support
+    // a language, it still supports all saved searches that are supported by
+    // discover by redirecting to discover for backward compatibility.
+    if (currentAppId === 'explore') {
+      return (
+        (supportedInApp ||
+          languageService?.getLanguage(languageId)?.supportedAppNames?.includes('discover')) ??
+        true
+      );
+    }
+    return supportedInApp ?? true;
+  }
 
   private debouncedFetch = _.debounce(async (query: string) => {
     const metaDataMap = this.getSavedObjectMetaDataMap();
@@ -162,6 +200,8 @@ class SavedObjectFinderUi extends React.Component<
       return await client.get<DataSourceAttributes>('data-source', id);
     };
 
+    const currentAppId = await this.getCurrentAppId();
+
     const savedObjects = await Promise.all(
       resp.savedObjects.map(async (obj) => {
         if (obj.type === 'index-pattern') {
@@ -172,15 +212,29 @@ class SavedObjectFinderUi extends React.Component<
             getDataSource
           );
           return result;
+        } else if (obj.type === 'search') {
+          const sourceObject = JSON.parse(
+            // @ts-expect-error TS2339 TODO(ts-error): fixme
+            obj.attributes?.kibanaSavedObjectMeta?.searchSourceJSON ?? null
+          );
+          const languageId = sourceObject?.query?.language;
+          if (this.isSavedSearchLanguageSupported(languageId, currentAppId, this.languageService)) {
+            return obj;
+          }
         } else {
           return obj;
         }
       })
     );
 
+    // @ts-expect-error TS2322 TODO(ts-error): fixme
     resp.savedObjects = savedObjects.filter((savedObject) => {
+      if (!savedObject) {
+        return false;
+      }
       const metaData = metaDataMap[savedObject.type];
       if (metaData.showSavedObject) {
+        // @ts-expect-error TS2345 TODO(ts-error): fixme
         return metaData.showSavedObject(savedObject);
       } else {
         return true;
@@ -571,9 +625,20 @@ class SavedObjectFinderUi extends React.Component<
   }
 }
 
-const getSavedObjectFinder = (savedObject: SavedObjectsStart, uiSettings: IUiSettingsClient) => {
+const getSavedObjectFinder = (
+  savedObject: SavedObjectsStart,
+  uiSettings: IUiSettingsClient,
+  data?: DataPublicPluginStart,
+  application?: ApplicationStart
+) => {
   return (props: SavedObjectFinderProps) => (
-    <SavedObjectFinderUi {...props} savedObjects={savedObject} uiSettings={uiSettings} />
+    <SavedObjectFinderUi
+      {...props}
+      savedObjects={savedObject}
+      uiSettings={uiSettings}
+      data={data}
+      application={application}
+    />
   );
 };
 

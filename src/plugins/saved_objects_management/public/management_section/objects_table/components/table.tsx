@@ -64,6 +64,7 @@ export interface TableProps {
   basePath: IBasePath;
   actionRegistry: SavedObjectsManagementActionServiceStart;
   columnRegistry: SavedObjectsManagementColumnServiceStart;
+  // @ts-expect-error TS2304 TODO(ts-error): fixme
   namespaceRegistry: SavedObjectsManagementNamespaceServiceStart;
   selectedSavedObjects: SavedObjectWithMetadata[];
   selectionConfig: {
@@ -140,6 +141,7 @@ export class Table extends PureComponent<TableProps, TableState> {
       isSearchTextValid: true,
       parseErrorMessage: null,
     });
+    // @ts-expect-error TS2554 TODO(ts-error): fixme
     this.props.onQueryChange({ query });
   };
 
@@ -174,6 +176,7 @@ export class Table extends PureComponent<TableProps, TableState> {
       items,
       totalItemCount,
       isSearching,
+      columnRegistry,
       filters,
       selectionConfig: selection,
       onDelete,
@@ -186,8 +189,6 @@ export class Table extends PureComponent<TableProps, TableState> {
       onShowRelationships,
       basePath,
       actionRegistry,
-      columnRegistry,
-      namespaceRegistry,
       dateFormat,
       availableWorkspaces,
       currentWorkspaceId,
@@ -423,18 +424,28 @@ export class Table extends PureComponent<TableProps, TableState> {
         {activeActionContents}
         <EuiSearchBar
           box={{ 'data-test-subj': 'savedObjectSearchBar' }}
+          compressed
           filters={filters}
           onChange={this.onChange}
           toolsRight={[
             <>
               {useUpdatedUX && (
-                <EuiButtonIcon
-                  iconType="refresh"
-                  size="s"
-                  display="base"
-                  type="base"
-                  onClick={onRefresh}
-                />
+                <EuiToolTip
+                  content={i18n.translate(
+                    'savedObjectsManagement.objectsTable.table.refreshButtonTooltip',
+                    {
+                      defaultMessage: 'Refresh',
+                    }
+                  )}
+                >
+                  <EuiButtonIcon
+                    iconType="refresh"
+                    size="s"
+                    display="base"
+                    type="base"
+                    onClick={onRefresh}
+                  />
+                </EuiToolTip>
               )}
             </>,
             <>{showDuplicate && duplicateButton}</>,
@@ -478,7 +489,10 @@ export class Table extends PureComponent<TableProps, TableState> {
                   label={
                     <FormattedMessage
                       id="savedObjectsManagement.objectsTable.exportObjectsConfirmModal.includeReferencesDeepLabel"
-                      defaultMessage="Include related objects"
+                      defaultMessage="Include related {useUpdatedUX, select, true {assets} other {objects}}"
+                      values={{
+                        useUpdatedUX: this.props.useUpdatedUX,
+                      }}
                     />
                   }
                   checked={this.state.isIncludeReferencesDeepChecked}
@@ -502,7 +516,7 @@ export class Table extends PureComponent<TableProps, TableState> {
           ]}
         />
         {queryParseError}
-        <EuiSpacer size="s" />
+        <EuiSpacer size={useUpdatedUX ? 'm' : 's'} />
         <div data-test-subj="savedObjectsTable">
           <EuiBasicTable
             loading={isSearching}

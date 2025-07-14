@@ -45,7 +45,9 @@ export enum OPENSEARCH_FIELD_TYPES {
 
   STRING = 'string',
   TEXT = 'text',
+  MATCH_ONLY_TEXT = 'match_only_text',
   KEYWORD = 'keyword',
+  WILDCARD = 'wildcard',
 
   BOOLEAN = 'boolean',
   OBJECT = 'object',
@@ -61,6 +63,7 @@ export enum OPENSEARCH_FIELD_TYPES {
   SCALED_FLOAT = 'scaled_float',
   DOUBLE = 'double',
   INTEGER = 'integer',
+  INT = 'int',
   LONG = 'long',
   SHORT = 'short',
   UNSIGNED_LONG = 'unsigned_long',

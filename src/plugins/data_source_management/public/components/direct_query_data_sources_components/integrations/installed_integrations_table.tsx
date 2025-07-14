@@ -13,7 +13,7 @@ import {
   EuiFlexGroup,
   EuiFlexItem,
   EuiFieldSearch,
-  EuiButton,
+  EuiSmallButton,
   EuiIcon,
   EuiText,
   EuiFlyout,
@@ -73,9 +73,9 @@ const AddIntegrationButton = ({
   toggleFlyout: () => void;
 }) => {
   return (
-    <EuiButton fill={fill} onClick={toggleFlyout}>
+    <EuiSmallButton fill={fill} onClick={toggleFlyout}>
       Add Integrations
-    </EuiButton>
+    </EuiSmallButton>
   );
 };
 
@@ -107,6 +107,8 @@ export const InstallIntegrationFlyout = ({
   datasourceType,
   datasourceName,
   refreshInstances,
+  selectedDataSourceId,
+  selectedClusterName,
   http,
 }: {
   closeFlyout: () => void;
@@ -114,6 +116,8 @@ export const InstallIntegrationFlyout = ({
   datasourceName: string;
   refreshInstances: () => void;
   http: HttpStart;
+  selectedDataSourceId?: string;
+  selectedClusterName?: string;
 }) => {
   const [availableIntegrations, setAvailableIntegrations] = useState({
     hits: [],
@@ -154,7 +158,10 @@ export const InstallIntegrationFlyout = ({
           http={http}
         />
       ) : (
+        // @ts-expect-error TS2786 TODO(ts-error): fixme
         <SetupIntegrationForm
+          selectedClusterName={selectedClusterName}
+          selectedDataSourceId={selectedDataSourceId}
           integration={installingIntegration}
           unsetIntegration={() => setInstallingIntegration(null)}
           renderType="flyout"
@@ -186,12 +193,16 @@ export const InstalledIntegrationsTable = ({
   datasourceName,
   refreshInstances,
   http,
+  selectedDataSourceId,
+  selectedClusterName,
 }: {
   integrations: IntegrationInstanceResult[];
   datasourceType: DatasourceType;
   datasourceName: string;
   refreshInstances: () => void;
   http: HttpStart;
+  selectedDataSourceId?: string;
+  selectedClusterName?: string;
 }) => {
   const basePathLink = (link: string): string => {
     if (http.basePath) {
@@ -255,6 +266,7 @@ export const InstalledIntegrationsTable = ({
         </EuiFlexItem>
       </EuiFlexGroup>
       <EuiSpacer />
+      {/* @ts-expect-error TS2322 TODO(ts-error): fixme */}
       <EuiInMemoryTable items={filteredIntegrations} columns={INSTALLED_INTEGRATIONS_COLUMNS} />
     </>
   );
@@ -276,6 +288,8 @@ export const InstalledIntegrationsTable = ({
           datasourceName={datasourceName}
           refreshInstances={refreshInstances}
           http={http}
+          selectedDataSourceId={selectedDataSourceId}
+          selectedClusterName={selectedClusterName}
         />
       ) : null}
     </>

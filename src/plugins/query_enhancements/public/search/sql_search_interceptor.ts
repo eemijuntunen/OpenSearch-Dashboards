@@ -4,9 +4,9 @@
  */
 
 import { trimEnd } from 'lodash';
-import { Observable, throwError } from 'rxjs';
-import { catchError, tap } from 'rxjs/operators';
 import { CoreStart } from 'opensearch-dashboards/public';
+import { Observable, throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import {
   DataPublicPluginStart,
   IOpenSearchDashboardsSearchRequest,
@@ -36,16 +36,17 @@ export class SQLSearchInterceptor extends SearchInterceptor {
     signal?: AbortSignal,
     strategy?: string
   ): Observable<IOpenSearchDashboardsSearchResponse> {
-    const isAsync = strategy === SEARCH_STRATEGY.SQL_ASYNC;
     const context: EnhancedFetchContext = {
       http: this.deps.http,
-      path: trimEnd(isAsync ? API.SQL_ASYNC_SEARCH : API.SQL_SEARCH),
+      path: trimEnd(`${API.SEARCH}/${strategy}`),
       signal,
+      body: {
+        pollQueryResultsParams: request.params?.pollQueryResultsParams,
+        timeRange: request.params?.body?.timeRange,
+      },
     };
 
-    if (isAsync) this.notifications.toasts.add('Fetching data...');
     return fetch(context, this.queryService.queryString.getQuery()).pipe(
-      tap(() => isAsync && this.notifications.toasts.addSuccess('Fetch complete...')),
       catchError((error) => {
         return throwError(error);
       })
@@ -54,7 +55,26 @@ export class SQLSearchInterceptor extends SearchInterceptor {
 
   public search(request: IOpenSearchDashboardsSearchRequest, options: ISearchOptions) {
     const dataset = this.queryService.queryString.getQuery().dataset;
-    const strategy = dataset?.type === DATASET.S3 ? SEARCH_STRATEGY.SQL_ASYNC : SEARCH_STRATEGY.SQL;
+    const datasetType = dataset?.type;
+    let strategy = datasetType === DATASET.S3 ? SEARCH_STRATEGY.SQL_ASYNC : SEARCH_STRATEGY.SQL;
+
+    if (datasetType) {
+      const datasetTypeConfig = this.queryService.queryString
+        .getDatasetService()
+        .getType(datasetType);
+      strategy = datasetTypeConfig?.getSearchOptions?.().strategy ?? strategy;
+
+      if (datasetTypeConfig?.languageOverrides?.SQL?.hideDatePicker === false) {
+        request.params = {
+          ...request.params,
+          body: {
+            ...request.params.body,
+            timeRange: this.queryService.timefilter.timefilter.getTime(),
+          },
+        };
+      }
+    }
+
     return this.runSearch(request, options.abortSignal, strategy);
   }
 }

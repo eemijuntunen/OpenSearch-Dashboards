@@ -39,11 +39,19 @@ const validate = {
   body: schema.object({
     changes: schema.object({}, { unknowns: 'allow' }),
   }),
-  query: schema.object({
-    scope: schema.maybe(
-      schema.oneOf([schema.literal(UiSettingScope.GLOBAL), schema.literal(UiSettingScope.USER)])
-    ),
-  }),
+  query: schema.object(
+    {
+      scope: schema.maybe(
+        schema.oneOf([
+          schema.literal(UiSettingScope.GLOBAL),
+          schema.literal(UiSettingScope.USER),
+          schema.literal(UiSettingScope.WORKSPACE),
+          schema.literal(UiSettingScope.DASHBOARD_ADMIN),
+        ])
+      ),
+    },
+    { unknowns: 'allow' }
+  ),
 };
 
 export function registerSetManyRoute(router: IRouter) {

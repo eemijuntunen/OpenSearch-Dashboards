@@ -23,8 +23,10 @@ import { HttpStart } from 'opensearch-dashboards/public';
 import { Color } from './utils';
 import { addIntegrationRequest } from './create_integration_helpers';
 import { SetupIntegrationFormInputs } from './setup_integration_inputs';
+// @ts-expect-error TS6133 TODO(ts-error): fixme
 import { CONSOLE_PROXY, INTEGRATIONS_BASE } from '../../../../framework/utils/shared';
 import { IntegrationConfig, ParsedIntegrationAsset, Result } from '../../../../framework/types';
+import { SQLService } from '../../../../framework/requests/sql';
 
 export interface IntegrationSetupInputs {
   displayName: string;
@@ -50,32 +52,33 @@ type SetupCallout = { show: true; title: string; color?: Color; text?: string } 
 const runQuery = async (
   query: string,
   datasource: string,
-  sessionId: string | null,
-  http: HttpStart
+  sessionId: string | undefined,
+  http: HttpStart,
+  dataSourceMDSId?: string
 ): Promise<Result<{ poll: object; sessionId: string }>> => {
   // Used for polling
   const sleep = (ms: number) => {
     return new Promise((resolve) => setTimeout(resolve, ms));
   };
 
+  const sqlService = new SQLService(http);
+
   try {
-    const queryResponse: { queryId: string; sessionId: string } = await http.post(CONSOLE_PROXY, {
-      body: JSON.stringify({ query, datasource, lang: 'sql', sessionId }),
-      query: {
-        path: '_plugins/_async_query',
-        method: 'POST',
+    const queryResponse: { queryId: string; sessionId: string } = await sqlService.fetch(
+      {
+        query,
+        datasource,
+        lang: 'sql',
+        sessionId,
       },
-    });
+      dataSourceMDSId
+    );
+
     let poll: { status: string; error?: string } = { status: 'undefined' };
-    const [queryId, newSessionId] = [queryResponse.queryId, queryResponse.sessionId];
+    const { queryId, sessionId: newSessionId } = queryResponse;
     while (!poll.error) {
-      poll = await http.post(CONSOLE_PROXY, {
-        body: '{}',
-        query: {
-          path: '_plugins/_async_query/' + queryId,
-          method: 'GET',
-        },
-      });
+      poll = await sqlService.fetchWithJobId({ queryId }, dataSourceMDSId);
+
       if (poll.status.toLowerCase() === 'success') {
         return {
           ok: true,
@@ -88,6 +91,7 @@ const runQuery = async (
       } else if (poll.status.toLowerCase().startsWith('fail')) {
         return {
           ok: false,
+          // @ts-expect-error TS2739 TODO(ts-error): fixme
           error: new Error(poll.error ?? 'No error information provided', { cause: poll }),
         };
       }
@@ -131,6 +135,8 @@ const addIntegration = async ({
   setCalloutLikeToast,
   setIsInstalling,
   http,
+  dataSourceMDSId,
+  dataSourceMDSLabel,
 }: {
   config: IntegrationSetupInputs;
   integration: IntegrationConfig;
@@ -138,9 +144,11 @@ const addIntegration = async ({
   setCalloutLikeToast: (title: string, color?: Color, text?: string) => void;
   setIsInstalling?: (isInstalling: boolean, success?: boolean) => void;
   http: HttpStart;
+  dataSourceMDSId?: string;
+  dataSourceMDSLabel?: string;
 }) => {
   setLoading(true);
-  let sessionId: string | null = null;
+  let sessionId: string | undefined;
 
   if (config.connectionType === 'index') {
     const res = await addIntegrationRequest({
@@ -148,6 +156,8 @@ const addIntegration = async ({
       templateName: integration.name,
       integration,
       setToast: setCalloutLikeToast,
+      dataSourceMDSId,
+      dataSourceMDSLabel,
       name: config.displayName,
       indexPattern: config.connectionDataSource,
       skipRedirect: setIsInstalling ? true : false,
@@ -174,7 +184,13 @@ const addIntegration = async ({
       }
 
       const queryStr = prepareQuery(query.query, config);
-      const result = await runQuery(queryStr, config.connectionDataSource, sessionId, http);
+      const result = await runQuery(
+        queryStr,
+        config.connectionDataSource,
+        sessionId,
+        http,
+        dataSourceMDSId
+      );
       if (!result.ok) {
         setLoading(false);
         setCalloutLikeToast('Failed to add integration', 'danger', result.error.message);
@@ -188,6 +204,8 @@ const addIntegration = async ({
       templateName: integration.name,
       integration,
       setToast: setCalloutLikeToast,
+      dataSourceMDSId,
+      dataSourceMDSLabel,
       name: config.displayName,
       indexPattern: `flint_${config.connectionDataSource}_default_${config.connectionTableName}__*`,
       workflows: config.enabledWorkflows,
@@ -230,6 +248,8 @@ export function SetupBottomBar({
   unsetIntegration,
   setIsInstalling,
   http,
+  dataSourceMDSId,
+  dataSourceMDSLabel,
 }: {
   config: IntegrationSetupInputs;
   integration: IntegrationConfig;
@@ -239,6 +259,8 @@ export function SetupBottomBar({
   unsetIntegration?: () => void;
   setIsInstalling?: (isInstalling: boolean, success?: boolean) => void;
   http: HttpStart;
+  dataSourceMDSId?: string;
+  dataSourceMDSLabel?: string;
 }) {
   // Drop-in replacement for setToast
   const setCalloutLikeToast = (title: string, color?: Color, text?: string) =>
@@ -290,6 +312,8 @@ export function SetupBottomBar({
                   setIsInstalling(newLoading);
                 },
                 setCalloutLikeToast,
+                dataSourceMDSId,
+                dataSourceMDSLabel,
                 setIsInstalling,
                 http,
               });
@@ -299,6 +323,8 @@ export function SetupBottomBar({
                 config,
                 setLoading,
                 setCalloutLikeToast,
+                dataSourceMDSId,
+                dataSourceMDSLabel,
                 setIsInstalling,
                 http,
               });
@@ -332,6 +358,8 @@ export function SetupIntegrationForm({
   forceConnection,
   setIsInstalling,
   http,
+  selectedDataSourceId,
+  selectedClusterName,
 }: {
   integration: string;
   renderType: 'page' | 'flyout';
@@ -342,6 +370,8 @@ export function SetupIntegrationForm({
   };
   setIsInstalling?: (isInstalling: boolean, success?: boolean) => void;
   http: HttpStart;
+  selectedDataSourceId?: string | undefined;
+  selectedClusterName?: string | undefined;
 }) {
   const [integConfig, setConfig] = useState({
     displayName: `${integration} Integration`,
@@ -391,6 +421,7 @@ export function SetupIntegrationForm({
                 integration={template}
                 setupCallout={setupCallout}
                 lockConnectionType={forceConnection !== undefined}
+                http={http}
               />
             )}
           </EuiPageContentBody>
@@ -404,6 +435,8 @@ export function SetupIntegrationForm({
             setSetupCallout={setSetupCallout}
             unsetIntegration={unsetIntegration}
             setIsInstalling={setIsInstalling}
+            dataSourceMDSId={selectedDataSourceId}
+            dataSourceMDSLabel={selectedClusterName}
             http={http}
           />
         </EuiBottomBar>
@@ -422,6 +455,7 @@ export function SetupIntegrationForm({
               integration={template}
               setupCallout={setupCallout}
               lockConnectionType={forceConnection !== undefined}
+              http={http}
             />
           )}
         </EuiFlyoutBody>
@@ -434,6 +468,8 @@ export function SetupIntegrationForm({
             setSetupCallout={setSetupCallout}
             unsetIntegration={unsetIntegration}
             setIsInstalling={setIsInstalling}
+            dataSourceMDSId={selectedDataSourceId}
+            dataSourceMDSLabel={selectedClusterName}
             http={http}
           />
         </EuiFlyoutFooter>

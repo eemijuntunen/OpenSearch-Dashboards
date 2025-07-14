@@ -5,6 +5,7 @@
 
 import { ISearchInterceptor } from '../../../search';
 import {
+  OSD_FIELD_TYPES,
   Query,
   QueryEditorExtensionConfig,
   QueryStringContract,
@@ -13,6 +14,7 @@ import {
 import { EditorInstance } from '../../../ui/query_editor/editors';
 
 export interface RecentQueryItem {
+  id: number;
   query: Query;
   time: number;
   timeRange?: TimeRange;
@@ -34,6 +36,11 @@ export interface EditorEnhancements {
   queryEditorExtension?: QueryEditorExtensionConfig;
 }
 
+export interface SampleQuery {
+  title: string;
+  query: string;
+}
+
 export interface LanguageConfig {
   id: string;
   title: string;
@@ -45,9 +52,18 @@ export interface LanguageConfig {
     bodyProps: any
   ) => EditorInstance<any, any, any>;
   fields?: {
+    sortable?: boolean;
     filterable?: boolean;
     visualizable?: boolean;
+    formatter?: (value: any, type: OSD_FIELD_TYPES) => any;
   };
   showDocLinks?: boolean;
+  docLink?: {
+    title: string;
+    url: string;
+  };
   editorSupportedAppNames?: string[];
+  supportedAppNames?: string[];
+  hideDatePicker?: boolean;
+  sampleQueries?: SampleQuery[];
 }

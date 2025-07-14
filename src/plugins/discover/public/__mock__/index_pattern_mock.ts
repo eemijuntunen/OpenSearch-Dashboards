@@ -51,11 +51,11 @@ export const indexPatternInitialMock = ({
   title: 'test_index',
   fields: indexPatternFieldMock,
   timeFieldName: 'order_date',
-  formatHit: jest.fn((hit) => (hit.fields ? hit.fields : hit._source)),
+  formatHit: (hit: any) => (hit.fields ? hit.fields : hit._source),
   flattenHit: undefined,
   formatField: undefined,
   metaFields: ['_id', '_index', '_source'],
-  getFieldByName: jest.fn(() => ({})),
+  getFieldByName: () => ({}),
 } as unknown) as IndexPattern;
 
 // Add a flattenHit method to the initial index pattern mock using flattenHitWrapper
@@ -66,6 +66,7 @@ const flatternHitMock = indexPatterns.flattenHitWrapper(
 indexPatternInitialMock.flattenHit = flatternHitMock;
 
 // Add a formatField method to the initial index pattern mock
+// @ts-expect-error TS7006 TODO(ts-error): fixme
 const formatFieldMock = (hit, field) => {
   return field === '_source' ? hit._source : indexPatternInitialMock.flattenHit(hit)[field];
 };
@@ -75,6 +76,7 @@ indexPatternInitialMock.formatField = formatFieldMock;
 export const indexPatternMock = indexPatternInitialMock;
 
 // Export a function that allows customization of index pattern mocks, by adding extra fields to the fieldsData
+// @ts-expect-error TS7006 TODO(ts-error): fixme
 export const getMockedIndexPatternWithCustomizedFields = (fields) => {
   const customizedFieldsData = [...fieldsData, ...fields];
   const customizedFieldsMock = {
@@ -90,6 +92,7 @@ export const getMockedIndexPatternWithCustomizedFields = (fields) => {
 };
 
 // Export a function that allows customization of index pattern mocks with both extra fields and time field
+// @ts-expect-error TS7006 TODO(ts-error): fixme
 export const getMockedIndexPatternWithTimeField = (fields, timeFiledName: string) => {
   const indexPatternWithTimeFieldMock = getMockedIndexPatternWithCustomizedFields(fields);
 

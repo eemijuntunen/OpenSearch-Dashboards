@@ -55,6 +55,7 @@ export class SearchEmbeddableFactory
     }),
     type: 'search',
     getIconForSavedObject: () => 'search',
+    includeFields: ['kibanaSavedObjectMeta'],
   };
 
   constructor(private getStartServices: () => Promise<StartServices>) {}
@@ -94,6 +95,7 @@ export class SearchEmbeddableFactory
           editUrl,
           editPath: url,
           filterManager,
+          // @ts-expect-error TS2532 TODO(ts-error): fixme
           editable: services.capabilities.discover.save as boolean,
           indexPatterns: indexPattern ? [indexPattern] : [],
           services,

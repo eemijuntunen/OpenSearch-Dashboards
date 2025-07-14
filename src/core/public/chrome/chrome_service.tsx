@@ -41,7 +41,7 @@ import {
   ReplaySubject,
   Subscription,
 } from 'rxjs';
-import { flatMap, map, takeUntil } from 'rxjs/operators';
+import { map, switchMap, takeUntil } from 'rxjs/operators';
 import { EuiLink } from '@elastic/eui';
 import { mountReactNode } from '../utils/mount';
 import { InternalApplicationStart } from '../application';
@@ -66,6 +66,12 @@ import {
   ChromeNavGroupServiceSetupContract,
   ChromeNavGroupServiceStartContract,
 } from './nav_group';
+import {
+  GlobalSearchService,
+  GlobalSearchServiceSetupContract,
+  GlobalSearchServiceStartContract,
+} from './global_search';
+import { searchPages } from './ui/global_search/search_pages_command';
 
 export { ChromeNavControls, ChromeRecentlyAccessed, ChromeDocTitle };
 
@@ -136,9 +142,12 @@ export class ChromeService {
   private readonly recentlyAccessed = new RecentlyAccessedService();
   private readonly docTitle = new DocTitleService();
   private readonly navGroup = new ChromeNavGroupService();
+  private readonly globalSearch = new GlobalSearchService();
   private useUpdatedHeader = false;
   private updatedHeaderSubscription: Subscription | undefined;
   private collapsibleNavHeaderRender?: CollapsibleNavHeaderRender;
+  private navGroupStart?: ChromeNavGroupServiceStartContract;
+  private applicationStart?: InternalApplicationStart;
 
   constructor(private readonly params: ConstructorParams) {}
 
@@ -159,7 +168,13 @@ export class ChromeService {
       // in the sense that the chrome UI should not be displayed until a non-chromeless app is mounting or mounted
       of(true),
       application.currentAppId$.pipe(
-        flatMap((appId) =>
+        /**
+         * Using flatMap here will introduce staled closure issue.
+         * For example, when currentAppId$ is going through A -> B -> C and
+         * the application.applications$ just get changed in B, then it will always use B as the currentAppId
+         * even though the latest appId now is C.
+         */
+        switchMap((appId) =>
           application.applications$.pipe(
             map((applications) => {
               return !!appId && applications.has(appId) && !!applications.get(appId)!.chromeless;
@@ -178,7 +193,7 @@ export class ChromeService {
     this.headerVariantOverride$ = new BehaviorSubject<HeaderVariant | undefined>(undefined);
 
     const appHeaderVariant$ = application.currentAppId$.pipe(
-      flatMap((appId) =>
+      switchMap((appId) =>
         application.applications$.pipe(
           map(
             (applications) =>
@@ -198,6 +213,15 @@ export class ChromeService {
 
   public setup({ uiSettings }: SetupDeps): ChromeSetup {
     const navGroup = this.navGroup.setup({ uiSettings });
+    const globalSearch = this.globalSearch.setup();
+
+    globalSearch.registerSearchCommand({
+      id: 'pagesSearch',
+      type: 'PAGES',
+      run: async (query: string, callback: () => void) =>
+        searchPages(query, this.navGroupStart, this.applicationStart, callback),
+    });
+
     return {
       registerCollapsibleNavHeader: (render: CollapsibleNavHeaderRender) => {
         if (this.collapsibleNavHeaderRender) {
@@ -209,6 +233,7 @@ export class ChromeService {
         this.collapsibleNavHeaderRender = render;
       },
       navGroup,
+      globalSearch,
     };
   }
 
@@ -246,7 +271,7 @@ export class ChromeService {
 
     const navControls = this.navControls.start();
     const navLinks = this.navLinks.start({ application, http });
-    const recentlyAccessed = await this.recentlyAccessed.start({ http, workspaces });
+    const recentlyAccessed = await this.recentlyAccessed.start({ http, workspaces, application });
     const docTitle = this.docTitle.start({ document: window.document });
     const navGroup = await this.navGroup.start({
       navLinks,
@@ -254,6 +279,10 @@ export class ChromeService {
       breadcrumbsEnricher$,
       workspaces,
     });
+    this.navGroupStart = navGroup;
+    this.applicationStart = application;
+
+    const globalSearch = this.globalSearch.start();
 
     // erase chrome fields from a previous app while switching to a next app
     application.currentAppId$.subscribe(() => {
@@ -346,6 +375,7 @@ export class ChromeService {
       docTitle,
       logos,
       navGroup,
+      globalSearch,
 
       getHeaderComponent: () => (
         <Header
@@ -374,6 +404,7 @@ export class ChromeService {
           navControlsExpandedCenter$={navControls.getExpandedCenter$()}
           navControlsExpandedRight$={navControls.getExpandedRight$()}
           navControlsLeftBottom$={navControls.getLeftBottom$()}
+          navControlsPrimaryHeaderRight$={navControls.getPrimaryHeaderRight$()}
           onIsLockedUpdate={setIsNavDrawerLocked}
           isLocked$={getIsNavDrawerLocked$}
           branding={injectedMetadata.getBranding()}
@@ -388,6 +419,8 @@ export class ChromeService {
           workspaceList$={workspaces.workspaceList$}
           currentWorkspace$={workspaces.currentWorkspace$}
           useUpdatedHeader={this.useUpdatedHeader}
+          globalSearchCommands={globalSearch.getAllSearchCommands()}
+          injectedMetadata={injectedMetadata}
         />
       ),
 
@@ -476,6 +509,8 @@ export class ChromeService {
 export interface ChromeSetup {
   registerCollapsibleNavHeader: (render: CollapsibleNavHeaderRender) => void;
   navGroup: ChromeNavGroupServiceSetupContract;
+  /** {@inheritdoc GlobalSearchService} */
+  globalSearch: GlobalSearchServiceSetupContract;
 }
 
 /**
@@ -517,6 +552,8 @@ export interface ChromeStart {
   navGroup: ChromeNavGroupServiceStartContract;
   /** {@inheritdoc Logos} */
   readonly logos: Logos;
+  /** {@inheritdoc GlobalSearchService} */
+  globalSearch: GlobalSearchServiceStartContract;
 
   /**
    * Sets the current app's title
@@ -605,7 +642,7 @@ export interface ChromeStart {
   setCustomNavLink(newCustomNavLink?: Partial<ChromeNavLink>): void;
 
   /**
-   * Get an observable of the current custom help conttent
+   * Get an observable of the current custom help content
    */
   getHelpExtension$(): Observable<ChromeHelpExtension | undefined>;
 
