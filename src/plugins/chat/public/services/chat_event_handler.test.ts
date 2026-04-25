@@ -68,6 +68,7 @@ describe('ChatEventHandler', () => {
     chatEventHandler = new ChatEventHandler({
       assistantActionService: mockAssistantActionService,
       chatService: mockChatService,
+      // @ts-expect-error TS2740 TODO(ts-error): fixme
       confirmationService: mockConfirmationService,
       callbacks: {
         onTimelineUpdate: mockOnTimelineUpdate,
@@ -906,6 +907,7 @@ describe('ChatEventHandler', () => {
           id: 'msg-1',
           role: 'user',
           content: [
+            // @ts-expect-error TS2322 TODO(ts-error): fixme
             { type: 'image', image: 'data:image/png;base64,abc' },
             { type: 'text', text: 'What is this?' },
           ],
@@ -1004,6 +1006,7 @@ describe('ChatEventHandler', () => {
       chatEventHandlerWithCallback = new ChatEventHandler({
         assistantActionService: mockAssistantActionService,
         chatService: mockChatService,
+        // @ts-expect-error TS2322 TODO(ts-error): fixme
         confirmationService: mockConfirmationService,
         callbacks: {
           onTimelineUpdate: mockOnTimelineUpdate,
@@ -1202,6 +1205,79 @@ describe('ChatEventHandler', () => {
     });
   });
 
+  describe('stopToolResultStreaming', () => {
+    it('should stop active tool result streaming and reset state', async () => {
+      const toolCallId = 'tool-123';
+      const mockResult = { success: true, data: 'test result' };
+
+      mockAssistantActionService.executeAction = jest.fn().mockResolvedValue(mockResult);
+
+      // Mock sendToolResult to return observable with unsubscribe
+      const mockToolMessage: ToolMessage = {
+        id: `tool-result-${toolCallId}`,
+        role: 'tool',
+        content: JSON.stringify(mockResult),
+        toolCallId,
+      };
+
+      const mockUnsubscribe = jest.fn();
+      const mockObservable = {
+        subscribe: jest.fn().mockReturnValue({ unsubscribe: mockUnsubscribe }),
+      };
+
+      mockChatService.sendToolResult = jest.fn().mockResolvedValue({
+        observable: mockObservable,
+        toolMessage: mockToolMessage,
+      });
+
+      // Trigger tool call flow to start streaming
+      await chatEventHandler.handleEvent({
+        type: EventType.TOOL_CALL_START,
+        toolCallId,
+        toolCallName: 'test_action',
+      } as ToolCallStartEvent);
+
+      await chatEventHandler.handleEvent({
+        type: EventType.TOOL_CALL_ARGS,
+        toolCallId,
+        delta: '{}',
+      } as ToolCallArgsEvent);
+
+      await chatEventHandler.handleEvent({
+        type: EventType.TOOL_CALL_END,
+        toolCallId,
+      } as ToolCallEndEvent);
+
+      // Verify streaming was started
+      expect(mockObservable.subscribe).toHaveBeenCalled();
+
+      // Clear previous calls
+      mockOnStreamingStateChange.mockClear();
+      mockOnStartResponse.mockClear();
+
+      // Stop the streaming
+      chatEventHandler.stopToolResultStreaming();
+
+      // Verify unsubscribe was called
+      expect(mockUnsubscribe).toHaveBeenCalled();
+
+      // Verify state was reset
+      expect(mockOnStreamingStateChange).toHaveBeenCalledWith(false);
+      expect(mockOnStartResponse).toHaveBeenCalledWith(false);
+    });
+
+    it('should handle stopToolResultStreaming when no streaming is active', () => {
+      // Should not throw when there's no active subscription
+      expect(() => {
+        chatEventHandler.stopToolResultStreaming();
+      }).not.toThrow();
+
+      // State callbacks should not be called when there's no active streaming
+      expect(mockOnStreamingStateChange).not.toHaveBeenCalled();
+      expect(mockOnStartResponse).not.toHaveBeenCalled();
+    });
+  });
+
   describe('telemetry', () => {
     let mockTelemetryRecorder: {
       recordEvent: jest.Mock;
@@ -1220,6 +1296,7 @@ describe('ChatEventHandler', () => {
       chatEventHandlerWithTelemetry = new ChatEventHandler({
         assistantActionService: mockAssistantActionService,
         chatService: mockChatService,
+        // @ts-expect-error TS2322 TODO(ts-error): fixme
         confirmationService: mockConfirmationService,
         telemetryRecorder: mockTelemetryRecorder,
         callbacks: {
