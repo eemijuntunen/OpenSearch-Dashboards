@@ -11,6 +11,8 @@ export interface BackendInfo {
   majorVersion: number;
   minorVersion: number;
   patchVersion: number;
+  /** True if the ES backend has OpenDistro plugins installed. */
+  hasOpenDistro?: boolean;
 }
 
 export interface TransportRequestParams {
