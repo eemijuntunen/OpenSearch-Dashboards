@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Client, ClientOptions } from '@opensearch-project/opensearch';
+import { Client, ClientOptions, Transport } from '@opensearch-project/opensearch';
 import { Client as LegacyClient } from 'elasticsearch';
 import { AwsSigv4Signer } from '@opensearch-project/opensearch/aws';
 import { Logger, OpenSearchDashboardsRequest } from '../../../../../src/core/server';
@@ -42,7 +42,8 @@ export const configureClient = async (
   }: DataSourceClientParams,
   openSearchClientPoolSetup: OpenSearchClientPoolSetup,
   config: DataSourcePluginConfigType,
-  logger: Logger
+  logger: Logger,
+  customTransport?: typeof Transport
 ): Promise<Client> => {
   let dataSource;
   let requireDecryption = true;
@@ -95,7 +96,8 @@ export const configureClient = async (
       dataSourceId,
       request,
       clientParams,
-      requireDecryption
+      requireDecryption,
+      customTransport
     );
   } catch (error: any) {
     logger.debug(
@@ -131,7 +133,8 @@ const getQueryClient = async (
   dataSourceId?: string,
   request?: OpenSearchDashboardsRequest,
   clientParams?: ClientParameters,
-  requireDecryption: boolean = true
+  requireDecryption: boolean = true,
+  customTransport?: typeof Transport
 ): Promise<Client> => {
   let credential;
   let cacheKeySuffix;
@@ -140,6 +143,11 @@ const getQueryClient = async (
     endpoint,
   } = dataSourceAttr;
   const clientOptions = parseClientOptions(config, endpoint, registeredSchema);
+
+  // Inject custom Transport class for ES compatibility if registered
+  if (customTransport) {
+    clientOptions.Transport = customTransport;
+  }
 
   if (clientParams !== undefined) {
     credential = clientParams.credentials;

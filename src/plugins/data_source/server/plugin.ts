@@ -178,6 +178,18 @@ export class DataSourcePlugin implements Plugin<DataSourcePluginSetup, DataSourc
   public start(core: CoreStart) {
     this.logger.debug('dataSource: Started');
     this.started = true;
+
+    // Pass custom Transport class (for ES compatibility) to the data source service
+    // so MDS-created clients also get request/response translation
+    const getClientTransport = (core.opensearch as any).getClientTransport;
+    if (getClientTransport) {
+      const transportClass = getClientTransport();
+      if (transportClass) {
+        this.dataSourceService.setTransportClass(transportClass);
+        this.logger.debug('Custom Transport class applied to data source clients');
+      }
+    }
+
     return {
       getAuthenticationMethodRegistry: () => this.authMethodsRegistry,
       getCustomApiSchemaRegistry: () => this.customApiSchemaRegistry,
