@@ -29,7 +29,7 @@
  */
 
 import { schema } from '@osd/config-schema';
-import { IRouter } from 'src/core/server';
+import { IRouter, OpenSearchClient } from 'src/core/server';
 import { getWorkspaceState } from '../../../../../../core/server/utils';
 import { createIndexName } from '../lib/create_index_name';
 import { SampleDatasetSchema } from '../lib/sample_dataset_registry_types';
@@ -76,32 +76,35 @@ export const createListRoute = (router: IRouter, sampleDatasets: SampleDatasetSc
           statusMsg: sampleDataset.statusMsg,
         };
       });
-      const isInstalledPromises = registeredSampleDatasets.map(async (sampleDataset) => {
-        const caller = dataSourceId
-          ? context.dataSource.opensearch.legacy.getClient(dataSourceId).callAPI
-          : context.core.opensearch.legacy.client.callAsCurrentUser;
 
+      // Use the new OpenSearch client instead of the legacy client.
+      // The new client uses the TranslatingTransport which handles ES 6.x compatibility.
+      const client: OpenSearchClient = dataSourceId
+        ? await context.dataSource.opensearch.getClient(dataSourceId)
+        : context.core.opensearch.client.asCurrentUser;
+
+      const isInstalledPromises = registeredSampleDatasets.map(async (sampleDataset) => {
         for (let i = 0; i < sampleDataset.dataIndices.length; i++) {
           const dataIndexConfig = sampleDataset.dataIndices[i];
           const index =
             dataIndexConfig.indexName ?? createIndexName(sampleDataset.id, dataIndexConfig.id);
           try {
-            const indexExists = await caller('indices.exists', { index });
+            const indexExistsResponse = await client.indices.exists({ index });
+            const indexExists = indexExistsResponse.body;
 
             if (!indexExists) {
               sampleDataset.status = NOT_INSTALLED;
               return;
             }
 
-            const { count } = await caller('count', {
-              index,
-            });
+            const countResponse = await client.count({ index });
+            const count = countResponse.body.count;
 
             if (count === 0) {
               sampleDataset.status = NOT_INSTALLED;
               return;
             }
-          } catch (err) {
+          } catch (err: any) {
             sampleDataset.status = UNKNOWN;
             sampleDataset.statusMsg = err.message;
             return;
@@ -115,7 +118,7 @@ export const createListRoute = (router: IRouter, sampleDatasets: SampleDatasetSc
               'dashboard',
               sampleDataset.overviewDashboard
             );
-          } catch (err) {
+          } catch (err: any) {
             if (context.core.savedObjects.client.errors.isNotFoundError(err)) {
               sampleDataset.status = NOT_INSTALLED;
               return;

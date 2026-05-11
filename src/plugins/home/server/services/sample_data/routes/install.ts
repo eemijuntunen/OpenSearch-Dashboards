@@ -29,7 +29,7 @@
  */
 
 import { schema } from '@osd/config-schema';
-import { IRouter, LegacyCallAPIOptions, Logger } from 'src/core/server';
+import { IRouter, Logger, OpenSearchClient } from 'src/core/server';
 import { SavedObjectsErrorHelpers } from '../../../../../../core/server';
 import { getWorkspaceState } from '../../../../../../core/server/utils';
 import { getFinalSavedObjects, getNestedField, setNestedField } from '../data_sets/util';
@@ -47,11 +47,7 @@ const insertDataIntoIndex = (
   dataIndexConfig: any,
   index: string,
   nowReference: string,
-  caller: (
-    endpoint: string,
-    clientParams?: Record<string, any>,
-    options?: LegacyCallAPIOptions
-  ) => Promise<any>,
+  client: OpenSearchClient,
   logger: Logger
 ) => {
   // Function to update timestamps
@@ -75,21 +71,19 @@ const insertDataIntoIndex = (
   const bulkInsert = async (docs: any) => {
     const bulk: any[] = [];
     docs.forEach((doc: any) => {
-      const insertCmd: any = { index: { _index: index } };
+      bulk.push({ index: { _index: index, ...(doc._id && { _id: doc._id }) } });
       if (doc._id) {
-        insertCmd.index._id = doc._id;
         delete doc._id;
       }
-      bulk.push(insertCmd);
       bulk.push(updateTimestamps(doc));
     });
 
-    const resp = await caller('bulk', {
-      body: bulk,
-    });
-    if (resp.errors) {
+    // Use the new OpenSearch client which goes through the TranslatingTransport
+    // The transport will automatically handle ES 6.x compatibility (adding _type, etc.)
+    const resp = await client.bulk({ body: bulk });
+    if (resp.body.errors) {
       const errMsg = `sample_data install errors while bulk inserting. OpenSearch response: ${JSON.stringify(
-        resp,
+        resp.body,
         null,
         ''
       )}`;
@@ -136,9 +130,13 @@ export function createInstallRoute(
       const now = query.now ? new Date(query.now) : new Date();
       const nowReference = dateToIso8601IgnoringTime(now);
       const counts = {};
-      const caller = dataSourceId
-        ? context.dataSource.opensearch.legacy.getClient(dataSourceId).callAPI
-        : context.core.opensearch.legacy.client.callAsCurrentUser;
+
+      // Use the new OpenSearch client instead of the legacy client.
+      // The new client uses the TranslatingTransport which handles ES 6.x compatibility
+      // automatically (type mappings, include_type_name, bulk _type, etc.)
+      const client: OpenSearchClient = dataSourceId
+        ? await context.dataSource.opensearch.getClient(dataSourceId)
+        : context.core.opensearch.client.asCurrentUser;
 
       let dataSourceTitle;
       try {
@@ -166,15 +164,15 @@ export function createInstallRoute(
 
         // clean up any old installation of dataset
         try {
-          await caller('indices.delete', {
-            index,
-          });
+          await client.indices.delete({ index });
         } catch (err) {
           // ignore delete errors
         }
 
         try {
-          const createIndexParams = {
+          // Use standard mapping format - the TranslatingTransport will handle
+          // ES 6.x compatibility (wrapping in _doc type, adding include_type_name)
+          const createIndexParams: any = {
             index,
             body: {
               settings: dataSourceId
@@ -183,11 +181,12 @@ export function createInstallRoute(
               mappings: { properties: dataIndexConfig.fields },
             },
           };
-          await caller('indices.create', createIndexParams);
-        } catch (err) {
+
+          await client.indices.create(createIndexParams);
+        } catch (err: any) {
           const errMsg = `Unable to create sample data index "${index}", error: ${err.message}`;
           logger.warn(errMsg);
-          return res.customError({ body: errMsg, statusCode: err.status });
+          return res.customError({ body: errMsg, statusCode: err.statusCode || 500 });
         }
 
         try {
@@ -195,7 +194,7 @@ export function createInstallRoute(
             dataIndexConfig,
             index,
             nowReference,
-            caller,
+            client,
             logger
           );
           (counts as any)[index] = count;
@@ -219,7 +218,7 @@ export function createInstallRoute(
           savedObjectsList.map(({ version, ...savedObject }) => savedObject),
           { overwrite: true }
         );
-      } catch (err) {
+      } catch (err: any) {
         const errMsg = `bulkCreate failed, error: ${err.message}`;
         logger.warn(errMsg);
         if (workspaceId && SavedObjectsErrorHelpers.isForbiddenError(err)) {

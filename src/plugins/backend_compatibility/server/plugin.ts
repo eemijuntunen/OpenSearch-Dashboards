@@ -13,6 +13,7 @@ import {
 } from '../../../../core/server';
 import { BackendCompatibilityConfig } from './config';
 import { CompatibilityTransport } from './transport/compatibility_transport';
+import { createLegacyRequestInterceptor } from './transport/legacy_interceptor';
 import { BackendInfo } from './transport/types';
 import { PLUGIN_NAME } from '../common';
 
@@ -55,6 +56,14 @@ export class BackendCompatibilityPlugin
 
     // Register custom transport — this is the entire setup
     core.opensearch.registerClientTransport(CompatibilityTransport);
+
+    // Register legacy client interceptor for /_plugins/* path rewriting
+    // and response translation on older OpenDistro backends
+    core.opensearch.registerLegacyRequestInterceptor(
+      createLegacyRequestInterceptor(
+        () => CompatibilityTransport.lastDetectedBackend
+      )
+    );
 
     this.logger.info('CompatibilityTransport registered with core');
     return {};

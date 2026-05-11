@@ -75,6 +75,7 @@ export class OpenSearchService
 
   private client?: ClusterClient;
   private customTransportClass?: typeof Transport;
+  private legacyRequestInterceptor?: (params: any, cb?: any) => any;
 
   constructor(private readonly coreContext: CoreContext) {
     this.opensearchDashboardsVersion = coreContext.env.packageInfo.version;
@@ -135,6 +136,9 @@ export class OpenSearchService
         this.log.info('Custom Transport class registered');
       },
       hasClientTransport: () => !!this.customTransportClass,
+      registerLegacyRequestInterceptor: (fn: (params: any, cb?: any) => any) => {
+        this.legacyRequestInterceptor = fn;
+      },
     };
   }
   public async start({ auditTrail }: StartDeps): Promise<InternalOpenSearchServiceStart> {
@@ -193,12 +197,61 @@ export class OpenSearchService
   }
 
   private createLegacyClusterClient(type: string, config: LegacyOpenSearchClientConfig) {
-    return new LegacyClusterClient(
+    const client = new LegacyClusterClient(
       config,
       this.coreContext.logger.get('opensearch', type),
       this.getAuditorFactory,
       this.getAuthHeaders
     );
+
+    // Always patch legacy clients — the patch checks for the custom transport
+    // class at request time, so it works even if the transport is registered
+    // after the client is created (plugin setup order is non-deterministic).
+    this.patchLegacyClientTransport(client);
+
+    return client;
+  }
+
+  /**
+   * Monkey-patch the legacy elasticsearch-js client's transport.request
+   * to call the registered legacy request interceptor. The interceptor
+   * can rewrite paths and transform responses.
+   */
+  private patchLegacyClientTransport(clusterClient: LegacyClusterClient) {
+    const getInterceptor = () => this.legacyRequestInterceptor;
+    const patchClient = (client: any) => {
+      if (!client?.transport?.request) return;
+      if (client.__compatPatched) return;
+      client.__compatPatched = true;
+      const origRequest = client.transport.request.bind(client.transport);
+      client.transport.request = (params: any, cb: any) => {
+        const interceptor = getInterceptor();
+        let responseTransform: ((body: any) => any) | undefined;
+        if (interceptor && params) {
+          const result = interceptor(params, cb);
+          if (result === undefined) return;
+          params = result.params ?? result;
+          responseTransform = result.responseTransform;
+        }
+        const req = origRequest(params, cb);
+        if (responseTransform && req && typeof req.then === 'function') {
+          const transform = responseTransform;
+          const origThen = req.then.bind(req);
+          req.then = (resolve: any, reject: any) => {
+            return origThen((body: any) => resolve(transform(body)), reject);
+          };
+        }
+        return req;
+      };
+    };
+
+    patchClient((clusterClient as any).client);
+    const origAsScoped = clusterClient.asScoped.bind(clusterClient);
+    clusterClient.asScoped = (request?: any) => {
+      const scoped = origAsScoped(request);
+      patchClient((clusterClient as any).scopedClient);
+      return scoped;
+    };
   }
 
   private getAuditorFactory = () => {

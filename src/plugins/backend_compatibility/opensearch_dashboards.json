@@ -1,6 +1,6 @@
 {
   "id": "backendCompatibility",
-  "version": "1.0.0",
+  "version": "opensearchDashboards",
   "opensearchDashboardsVersion": "opensearchDashboards",
   "server": true,
   "ui": false,

@@ -8,4 +8,5 @@ export * as documentAdapter from './document_adapter';
 export * as mappingAdapter from './mapping_adapter';
 export * as fieldCapsAdapter from './field_caps_adapter';
 export * as scrollAdapter from './scroll_adapter';
+export * as pluginApiAdapter from './plugin_api_adapter';
 export * from './normalization_utils';

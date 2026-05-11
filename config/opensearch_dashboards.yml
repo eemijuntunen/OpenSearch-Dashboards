@@ -23,7 +23,10 @@
 # server.name: "your-hostname"
 
 # The URLs of the OpenSearch instances to use for all your queries.
-# opensearch.hosts: ["http://localhost:9200"]
+opensearch.hosts: ["https://search-es68-p37dicdle4g4svzttxeuksbdle.aos.us-west-2.on.aws"] #"http://localhost:9202"
+
+opensearch.username: "admin"
+opensearch.password: "Admin_123"
 
 # OpenSearch Dashboards uses an index in OpenSearch to store saved searches, visualizations and
 # dashboards. OpenSearch Dashboards creates a new index if the index doesn't already exist.
@@ -429,4 +432,4 @@
 
 # @experimental Enable legacy Elasticsearch backend compatibility.
 # This feature is currently being developed and should be used with caution in production environments.
-# backendCompatibility.enabled: false
+backend_compatibility.enabled: true

@@ -252,6 +252,7 @@ export class LegacyService implements CoreService {
         legacy: setupDeps.core.opensearch.legacy,
         registerClientTransport: setupDeps.core.opensearch.registerClientTransport,
         hasClientTransport: setupDeps.core.opensearch.hasClientTransport,
+        registerLegacyRequestInterceptor: setupDeps.core.opensearch.registerLegacyRequestInterceptor,
       },
       http: {
         createCookieSessionStorageFactory: setupDeps.core.http.createCookieSessionStorageFactory,

@@ -12,6 +12,7 @@ import * as documentAdapter from './adapters/document_adapter';
 import * as mappingAdapter from './adapters/mapping_adapter';
 import * as fieldCapsAdapter from './adapters/field_caps_adapter';
 import * as scrollAdapter from './adapters/scroll_adapter';
+import * as pluginApiAdapter from './adapters/plugin_api_adapter';
 
 /** Detection timeout in milliseconds */
 const DETECTION_TIMEOUT_MS = 30000;
@@ -93,6 +94,15 @@ function stripTypeFromMsearchHits(response: any): any {
  * e.g. /_search/scroll before /_search, /_create before /_doc.
  */
 const ROUTE_TABLE: RouteEntry[] = [
+  // ── Plugin API rewriting ──────────────────────────────────────────
+  // Rewrites /_plugins/* → /_opendistro/* when the backend is ES with OpenDistro installed.
+  // Must run before other entries so subsequent matching sees the rewritten path.
+  {
+    name: 'plugin_api_rewrite',
+    pattern: /^\/_plugins\//,
+    request: pluginApiAdapter.translateRequest,
+  },
+
   // ── Search ────────────────────────────────────────────────────────
   {
     name: 'scroll',
@@ -293,6 +303,42 @@ export class CompatibilityTransport extends Transport {
       const response = await Promise.race([detectionPromise, timeoutPromise]);
       const info = response?.body || response;
       this.backend = detectBackend(info);
+
+      // If ES, probe for OpenDistro plugins so we can rewrite /_plugins/* paths.
+      // We try _opendistro/_security/health which is lightweight and typically
+      // accessible even with basic auth (credentials are passed via transport).
+      // Fall back to checking _cat/plugins if that fails.
+      if (this.backend.distribution === 'elasticsearch') {
+        try {
+          // First try the OpenDistro security health endpoint
+          await super.request(
+            { method: 'GET', path: '/_opendistro/_security/health' },
+            options
+          );
+          this.backend.hasOpenDistro = true;
+        } catch {
+          try {
+            // Fall back to _cat/plugins
+            const pluginsResponse = await super.request(
+              {
+                method: 'GET',
+                path: '/_cat/plugins',
+                querystring: { format: 'json', h: 'component' },
+              },
+              options
+            );
+            const plugins = pluginsResponse?.body || pluginsResponse;
+            this.backend.hasOpenDistro =
+              Array.isArray(plugins) &&
+              plugins.some((p: any) =>
+                (p.component || p.name || '').toLowerCase().startsWith('opendistro-')
+              );
+          } catch {
+            this.backend.hasOpenDistro = false;
+          }
+        }
+      }
+
       CompatibilityTransport.lastDetectedBackend = this.backend;
     } catch (error) {
       if (this.detectionAttempts >= MAX_DETECTION_ATTEMPTS) {

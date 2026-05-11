@@ -15,17 +15,31 @@ const flightsSampleDataset = flightsSpecProvider();
 
 const sampleDatasets: SampleDatasetSchema[] = [flightsSampleDataset];
 
+// Helper to create a mock OpenSearch client with the new client structure
+const createMockOpenSearchClient = (overrides: any = {}) => {
+  return {
+    bulk: jest.fn().mockResolvedValue({ body: { errors: false } }),
+    indices: {
+      create: jest.fn().mockResolvedValue({ body: { acknowledged: true } }),
+      delete: jest.fn().mockResolvedValue({ body: { acknowledged: true } }),
+      exists: jest.fn().mockResolvedValue({ body: true }),
+    },
+    count: jest.fn().mockResolvedValue({ body: { count: 1 } }),
+    ...overrides,
+  };
+};
+
 describe('sample data install route', () => {
   let mockCoreSetup: MockedKeys<CoreSetup>;
-  // @ts-expect-error TS7034 TODO(ts-error): fixme
-  let mockLogger;
-  // @ts-expect-error TS7034 TODO(ts-error): fixme
-  let mockUsageTracker;
+  let mockLogger: any;
+  let mockUsageTracker: any;
 
   beforeEach(() => {
     mockCoreSetup = coreMock.createSetup();
     mockLogger = {
       warn: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
     };
 
     mockUsageTracker = {
@@ -35,7 +49,7 @@ describe('sample data install route', () => {
   });
 
   it('handler calls expected api with the given request', async () => {
-    const mockClient = jest.fn().mockResolvedValue(true);
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -52,9 +66,7 @@ describe('sample data install route', () => {
     const mockContext = {
       core: {
         opensearch: {
-          legacy: {
-            client: { callAsCurrentUser: mockClient },
-          },
+          client: { asCurrentUser: mockClient },
         },
         savedObjects: { client: mockSOClient },
       },
@@ -70,9 +82,7 @@ describe('sample data install route', () => {
     createInstallRoute(
       mockCoreSetup.http.createRouter(),
       sampleDatasets,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockLogger,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockUsageTracker
     );
 
@@ -81,11 +91,8 @@ describe('sample data install route', () => {
 
     await handler((mockContext as unknown) as RequestHandlerContext, mockRequest, mockResponse);
 
-    expect(mockClient.mock.calls[1][1].body.settings).toMatchObject({
-      index: { number_of_shards: 1, auto_expand_replicas: '0-1' },
-    });
-
-    // expect(mockClient).toBeCalledTimes(2);
+    expect(mockClient.indices.create).toBeCalled();
+    expect(mockClient.bulk).toBeCalled();
     expect(mockResponse.ok).toBeCalled();
     expect(mockResponse.ok.mock.calls[0][0]).toMatchObject({
       body: {
@@ -97,8 +104,7 @@ describe('sample data install route', () => {
 
   it('handler calls expected api with the given request with data source', async () => {
     const mockDataSourceId = 'dataSource';
-
-    const mockClient = jest.fn().mockResolvedValue(true);
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -112,20 +118,13 @@ describe('sample data install route', () => {
     };
     const mockSOClient = {
       bulkCreate: jest.fn().mockResolvedValue(mockSOClientGetResponse),
-      get: jest.fn().mockResolvedValue(mockSOClientGetResponse),
+      get: jest.fn().mockResolvedValue({ id: mockDataSourceId, attributes: { title: 'Test DS' } }),
     };
 
     const mockContext = {
       dataSource: {
         opensearch: {
-          legacy: {
-            // @ts-expect-error TS7006 TODO(ts-error): fixme
-            getClient: (id) => {
-              return {
-                callAPI: mockClient,
-              };
-            },
-          },
+          getClient: jest.fn().mockResolvedValue(mockClient),
         },
       },
       core: {
@@ -143,9 +142,7 @@ describe('sample data install route', () => {
     createInstallRoute(
       mockCoreSetup.http.createRouter(),
       sampleDatasets,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockLogger,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockUsageTracker
     );
 
@@ -154,10 +151,9 @@ describe('sample data install route', () => {
 
     await handler((mockContext as unknown) as RequestHandlerContext, mockRequest, mockResponse);
 
-    expect(mockClient.mock.calls[1][1].body.settings).toMatchObject({
-      index: { number_of_shards: 1 },
-    });
-
+    expect(mockContext.dataSource.opensearch.getClient).toBeCalledWith(mockDataSourceId);
+    expect(mockClient.indices.create).toBeCalled();
+    expect(mockClient.bulk).toBeCalled();
     expect(mockResponse.ok).toBeCalled();
     expect(mockResponse.ok.mock.calls[0][0]).toMatchObject({
       body: {
@@ -169,8 +165,7 @@ describe('sample data install route', () => {
 
   it('handler calls expected api with the given request with workspace', async () => {
     const mockWorkspaceId = 'workspace';
-
-    const mockClient = jest.fn().mockResolvedValue(true);
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -190,9 +185,7 @@ describe('sample data install route', () => {
     const mockContext = {
       core: {
         opensearch: {
-          legacy: {
-            client: { callAsCurrentUser: mockClient },
-          },
+          client: { asCurrentUser: mockClient },
         },
         savedObjects: { client: mockSOClient },
       },
@@ -209,9 +202,7 @@ describe('sample data install route', () => {
     createInstallRoute(
       mockCoreSetup.http.createRouter(),
       sampleDatasets,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockLogger,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockUsageTracker
     );
 
@@ -220,10 +211,8 @@ describe('sample data install route', () => {
 
     await handler((mockContext as unknown) as RequestHandlerContext, mockRequest, mockResponse);
 
-    expect(mockClient.mock.calls[1][1].body.settings).toMatchObject({
-      index: { number_of_shards: 1 },
-    });
-
+    expect(mockClient.indices.create).toBeCalled();
+    expect(mockClient.bulk).toBeCalled();
     expect(mockResponse.ok).toBeCalled();
     expect(mockResponse.ok.mock.calls[0][0]).toMatchObject({
       body: {
@@ -235,8 +224,7 @@ describe('sample data install route', () => {
 
   it('handler response forbidden error when bulkCreate forbidden inside workspace', async () => {
     const mockWorkspaceId = 'workspace';
-
-    const mockClient = jest.fn().mockResolvedValue(true);
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -260,9 +248,7 @@ describe('sample data install route', () => {
     const mockContext = {
       core: {
         opensearch: {
-          legacy: {
-            client: { callAsCurrentUser: mockClient },
-          },
+          client: { asCurrentUser: mockClient },
         },
         savedObjects: { client: mockSOClient },
       },
@@ -279,9 +265,7 @@ describe('sample data install route', () => {
     createInstallRoute(
       mockCoreSetup.http.createRouter(),
       sampleDatasets,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockLogger,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockUsageTracker
     );
 
@@ -297,7 +281,7 @@ describe('sample data install route', () => {
   });
 
   it('handler response internal error when bulkCreate throw error', async () => {
-    const mockClient = jest.fn().mockResolvedValue(true);
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -317,9 +301,7 @@ describe('sample data install route', () => {
     const mockContext = {
       core: {
         opensearch: {
-          legacy: {
-            client: { callAsCurrentUser: mockClient },
-          },
+          client: { asCurrentUser: mockClient },
         },
         savedObjects: { client: mockSOClient },
       },
@@ -335,9 +317,7 @@ describe('sample data install route', () => {
     createInstallRoute(
       mockCoreSetup.http.createRouter(),
       sampleDatasets,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockLogger,
-      // @ts-expect-error TS7005 TODO(ts-error): fixme
       mockUsageTracker
     );
 

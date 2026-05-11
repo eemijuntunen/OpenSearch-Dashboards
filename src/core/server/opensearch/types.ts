@@ -121,6 +121,12 @@ export interface OpenSearchServiceSetup {
    * @returns true if a Transport class has been registered, false otherwise
    */
   hasClientTransport: () => boolean;
+
+  /**
+   * Register an interceptor for legacy elasticsearch-js client requests.
+   * The interceptor receives the request params and can return modified params.
+   */
+  registerLegacyRequestInterceptor: (fn: (params: any, cb?: any) => any) => void;
 }
 
 /** @internal */

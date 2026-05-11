@@ -33,7 +33,7 @@ export function translateBulkRequest(params: any, backend: BackendInfo): any {
   const transformed = source.map((item: any) => {
     if (!item || typeof item !== 'object') return item;
     for (const action of ['index', 'create', 'update', 'delete']) {
-      if (action in item) {
+      if (action in item && item[action] && typeof item[action] === 'object') {
         const meta = { ...item[action] };
         // Add _type if not present
         if (!meta._type && !meta.type) {

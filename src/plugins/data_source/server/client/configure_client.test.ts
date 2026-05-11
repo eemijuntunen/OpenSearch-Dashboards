@@ -400,6 +400,48 @@ describe('configureClient', () => {
     });
   });
 
+  describe('Custom Transport', () => {
+    beforeEach(() => {
+      savedObjectsMock.get.mockReset().mockResolvedValue({
+        id: DATA_SOURCE_ID,
+        type: DATA_SOURCE_SAVED_OBJECT_TYPE,
+        attributes: {
+          ...dataSourceAttr,
+          auth: {
+            type: AuthType.NoAuth,
+          },
+        },
+        references: [],
+      });
+    });
+
+    test('should inject customTransport into client options when provided', async () => {
+      const mockTransport = jest.fn() as any;
+      const capturedOptions: ClientOptions = { nodes: 'http://localhost' };
+      parseClientOptionsMock.mockReturnValue(capturedOptions);
+
+      await configureClient(
+        dataSourceClientParams,
+        clientPoolSetup,
+        config,
+        logger,
+        mockTransport
+      );
+
+      expect(capturedOptions.Transport).toBe(mockTransport);
+      expect(ClientMock).toHaveBeenCalledWith(capturedOptions);
+    });
+
+    test('should not set Transport on client options when customTransport is undefined', async () => {
+      const capturedOptions: ClientOptions = { nodes: 'http://localhost' };
+      parseClientOptionsMock.mockReturnValue(capturedOptions);
+
+      await configureClient(dataSourceClientParams, clientPoolSetup, config, logger);
+
+      expect(capturedOptions.Transport).toBeUndefined();
+    });
+  });
+
   describe('Client Pool', () => {
     let opensearchClientPoolSetup: OpenSearchClientPoolSetup;
     let openSearchClientPool: OpenSearchClientPool;

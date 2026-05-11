@@ -49,6 +49,7 @@ export interface MockedOpenSearchServiceSetup {
   };
   registerClientTransport: jest.Mock;
   hasClientTransport: jest.Mock<boolean>;
+  registerLegacyRequestInterceptor: jest.Mock<void>;
 }
 
 export interface MockedOpenSearchServiceStart {
@@ -73,6 +74,7 @@ const createSetupContractMock = () => {
     },
     registerClientTransport: jest.fn(),
     hasClientTransport: jest.fn().mockReturnValue(false),
+    registerLegacyRequestInterceptor: jest.fn(),
   };
   setupContract.legacy.createClient.mockReturnValue(legacyClientMock.createCustomClusterClient());
   setupContract.legacy.client.asScoped.mockReturnValue(
@@ -126,6 +128,7 @@ const createInternalSetupContractMock = () => {
     },
     registerClientTransport: jest.fn(),
     hasClientTransport: jest.fn().mockReturnValue(false),
+    registerLegacyRequestInterceptor: jest.fn(),
   };
   setupContract.legacy.client.asScoped.mockReturnValue(
     legacyClientMock.createScopedClusterClient()

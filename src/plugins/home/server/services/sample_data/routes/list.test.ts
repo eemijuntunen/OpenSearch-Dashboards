@@ -14,6 +14,17 @@ const flightsSampleDataset = flightsSpecProvider();
 
 const sampleDatasets: SampleDatasetSchema[] = [flightsSampleDataset];
 
+// Helper to create a mock OpenSearch client with the new client structure
+const createMockOpenSearchClient = (overrides: any = {}) => {
+  return {
+    indices: {
+      exists: jest.fn().mockResolvedValue({ body: true }),
+    },
+    count: jest.fn().mockResolvedValue({ body: { count: 1 } }),
+    ...overrides,
+  };
+};
+
 describe('sample data list route', () => {
   let mockCoreSetup: MockedKeys<CoreSetup>;
 
@@ -22,7 +33,7 @@ describe('sample data list route', () => {
   });
 
   it('handler calls expected api with the given request', async () => {
-    const mockClient = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce({ count: 1 });
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -39,9 +50,7 @@ describe('sample data list route', () => {
     const mockContext = {
       core: {
         opensearch: {
-          legacy: {
-            client: { callAsCurrentUser: mockClient },
-          },
+          client: { asCurrentUser: mockClient },
         },
         savedObjects: { client: mockSOClient },
       },
@@ -61,14 +70,15 @@ describe('sample data list route', () => {
 
     await handler((mockContext as unknown) as RequestHandlerContext, mockRequest, mockResponse);
 
-    expect(mockClient).toBeCalledTimes(2);
+    expect(mockClient.indices.exists).toBeCalled();
+    expect(mockClient.count).toBeCalled();
     expect(mockResponse.ok).toBeCalled();
     expect(mockSOClient.get.mock.calls[0][1]).toMatch('7adfa750-4c81-11e8-b3d7-01146121b73d');
   });
 
   it('handler calls expected api with the given request with data source', async () => {
     const mockDataSourceId = 'dataSource';
-    const mockClient = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce({ count: 1 });
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -85,14 +95,7 @@ describe('sample data list route', () => {
     const mockContext = {
       dataSource: {
         opensearch: {
-          legacy: {
-            // @ts-expect-error TS7006 TODO(ts-error): fixme
-            getClient: (id) => {
-              return {
-                callAPI: mockClient,
-              };
-            },
-          },
+          getClient: jest.fn().mockResolvedValue(mockClient),
         },
       },
       core: {
@@ -115,7 +118,9 @@ describe('sample data list route', () => {
 
     await handler((mockContext as unknown) as RequestHandlerContext, mockRequest, mockResponse);
 
-    expect(mockClient).toBeCalledTimes(2);
+    expect(mockContext.dataSource.opensearch.getClient).toBeCalledWith(mockDataSourceId);
+    expect(mockClient.indices.exists).toBeCalled();
+    expect(mockClient.count).toBeCalled();
     expect(mockResponse.ok).toBeCalled();
     expect(mockSOClient.get.mock.calls[0][1]).toMatch(
       `${mockDataSourceId}_7adfa750-4c81-11e8-b3d7-01146121b73d`
@@ -124,7 +129,7 @@ describe('sample data list route', () => {
 
   it('handler calls expected api with the given request with workspace', async () => {
     const mockWorkspaceId = 'workspace';
-    const mockClient = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce({ count: 1 });
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -141,9 +146,7 @@ describe('sample data list route', () => {
     const mockContext = {
       core: {
         opensearch: {
-          legacy: {
-            client: { callAsCurrentUser: mockClient },
-          },
+          client: { asCurrentUser: mockClient },
         },
         savedObjects: { client: mockSOClient },
       },
@@ -165,7 +168,8 @@ describe('sample data list route', () => {
 
     await handler((mockContext as unknown) as RequestHandlerContext, mockRequest, mockResponse);
 
-    expect(mockClient).toBeCalledTimes(2);
+    expect(mockClient.indices.exists).toBeCalled();
+    expect(mockClient.count).toBeCalled();
     expect(mockResponse.ok).toBeCalled();
     expect(mockSOClient.get.mock.calls[0][1]).toMatch(
       `${mockWorkspaceId}_7adfa750-4c81-11e8-b3d7-01146121b73d`
@@ -175,7 +179,7 @@ describe('sample data list route', () => {
   it('handler calls expected api with the given request with workspace and data source', async () => {
     const mockWorkspaceId = 'workspace';
     const mockDataSourceId = 'dataSource';
-    const mockClient = jest.fn().mockResolvedValueOnce(true).mockResolvedValueOnce({ count: 1 });
+    const mockClient = createMockOpenSearchClient();
 
     const mockSOClientGetResponse = {
       saved_objects: [
@@ -192,14 +196,7 @@ describe('sample data list route', () => {
     const mockContext = {
       dataSource: {
         opensearch: {
-          legacy: {
-            // @ts-expect-error TS7006 TODO(ts-error): fixme
-            getClient: (id) => {
-              return {
-                callAPI: mockClient,
-              };
-            },
-          },
+          getClient: jest.fn().mockResolvedValue(mockClient),
         },
       },
       core: {
@@ -223,7 +220,9 @@ describe('sample data list route', () => {
 
     await handler((mockContext as unknown) as RequestHandlerContext, mockRequest, mockResponse);
 
-    expect(mockClient).toBeCalledTimes(2);
+    expect(mockContext.dataSource.opensearch.getClient).toBeCalledWith(mockDataSourceId);
+    expect(mockClient.indices.exists).toBeCalled();
+    expect(mockClient.count).toBeCalled();
     expect(mockResponse.ok).toBeCalled();
     expect(mockSOClient.get.mock.calls[0][1]).toMatch(
       `${mockWorkspaceId}_${mockDataSourceId}_7adfa750-4c81-11e8-b3d7-01146121b73d`

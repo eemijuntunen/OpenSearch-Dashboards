@@ -12,7 +12,7 @@ import { isPlainObject } from './normalization_utils';
 // Each downgrade function receives the original field definition and returns
 // a compatible definition for ES 6.x.
 //
-// Reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html
+// Field type compatibility reference for ES 6.x downgrade strategies
 
 interface FieldDefinition {
   type?: string;

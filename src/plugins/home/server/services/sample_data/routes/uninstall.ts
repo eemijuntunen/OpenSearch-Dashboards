@@ -30,7 +30,7 @@
 
 import { schema } from '@osd/config-schema';
 import _ from 'lodash';
-import { IRouter } from 'src/core/server';
+import { IRouter, OpenSearchClient } from 'src/core/server';
 import { getWorkspaceState } from '../../../../../../core/server/utils';
 import { getFinalSavedObjects } from '../data_sets/util';
 import { createIndexName } from '../lib/create_index_name';
@@ -90,9 +90,11 @@ export function createUninstallRoute(
         }
       }
 
-      const caller = dataSourceId
-        ? context.dataSource.opensearch.legacy.getClient(dataSourceId).callAPI
-        : context.core.opensearch.legacy.client.callAsCurrentUser;
+      // Use the new OpenSearch client instead of the legacy client.
+      // The new client uses the TranslatingTransport which handles ES 6.x compatibility.
+      const client: OpenSearchClient = dataSourceId
+        ? await context.dataSource.opensearch.getClient(dataSourceId)
+        : context.core.opensearch.client.asCurrentUser;
 
       for (let i = 0; i < sampleDataset.dataIndices.length; i++) {
         const dataIndexConfig = sampleDataset.dataIndices[i];
@@ -100,10 +102,10 @@ export function createUninstallRoute(
           dataIndexConfig.indexName ?? createIndexName(sampleDataset.id, dataIndexConfig.id);
 
         try {
-          await caller('indices.delete', { index });
-        } catch (err) {
+          await client.indices.delete({ index });
+        } catch (err: any) {
           return response.customError({
-            statusCode: err.status,
+            statusCode: err.statusCode || 500,
             body: {
               message: `Unable to delete sample data index "${index}", error: ${err.message}`,
             },

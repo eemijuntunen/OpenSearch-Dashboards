@@ -8,6 +8,11 @@ import { loggingSystemMock } from '../../../core/server/mocks';
 import { DataSourcePluginConfigType } from '../config';
 import { DataSourceService } from './data_source_service';
 
+const mockConfigureClient = jest.fn().mockResolvedValue({});
+jest.mock('./client/configure_client', () => ({
+  configureClient: (...args: any[]) => mockConfigureClient(...args),
+}));
+
 const logger = loggingSystemMock.create();
 
 describe('Data Source Service', () => {
@@ -27,6 +32,7 @@ describe('Data Source Service', () => {
         pingTimeout: duration(10, 'seconds'),
       },
     } as DataSourcePluginConfigType;
+    mockConfigureClient.mockClear();
   });
 
   afterEach(() => {
@@ -39,6 +45,37 @@ describe('Data Source Service', () => {
       const setup = await service.setup(config);
       expect(setup).toHaveProperty('getDataSourceClient');
       expect(setup).toHaveProperty('getDataSourceLegacyClient');
+    });
+  });
+
+  describe('setTransportClass()', () => {
+    test('should pass custom transport to configureClient when set', async () => {
+      const mockTransport = jest.fn() as any;
+      service.setTransportClass(mockTransport);
+
+      const setup = await service.setup(config);
+      await setup.getDataSourceClient({} as any);
+
+      expect(mockConfigureClient).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        mockTransport
+      );
+    });
+
+    test('should pass undefined transport to configureClient when not set', async () => {
+      const setup = await service.setup(config);
+      await setup.getDataSourceClient({} as any);
+
+      expect(mockConfigureClient).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        undefined
+      );
     });
   });
 });

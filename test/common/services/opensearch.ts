@@ -31,17 +31,20 @@
 import fs from 'fs';
 import { Client } from '@opensearch-project/opensearch';
 import { CA_CERT_PATH } from '@osd/dev-utils';
+import { CompatibilityTransport } from '../../../src/plugins/backend_compatibility/server/transport/compatibility_transport';
 
 import { FtrProviderContext } from '../ftr_provider_context';
 
 export function OpenSearchProvider({ getService }: FtrProviderContext) {
   const config = getService('config');
+  const Transport = process.env.TEST_ES_COMPAT ? CompatibilityTransport : undefined;
 
   if (process.env.TEST_CLOUD) {
     return new Client({
       nodes: [config.get('servers.opensearch.serverUrl')],
       requestTimeout: config.get('timeouts.opensearchRequestTimeout'),
-    });
+      ...(Transport && { Transport }),
+    } as any);
   } else {
     return new Client({
       ssl: {
@@ -49,6 +52,7 @@ export function OpenSearchProvider({ getService }: FtrProviderContext) {
       },
       nodes: [config.get('servers.opensearch.serverUrl')],
       requestTimeout: config.get('timeouts.opensearchRequestTimeout'),
-    });
+      ...(Transport && { Transport }),
+    } as any);
   }
 }
