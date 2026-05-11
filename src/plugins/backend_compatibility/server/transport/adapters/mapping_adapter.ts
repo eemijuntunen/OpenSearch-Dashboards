@@ -6,14 +6,6 @@
 import { BackendInfo, DEFAULT_DOCUMENT_TYPE } from '../types';
 import { isPlainObject } from './normalization_utils';
 
-// ── Field Type Downgrade Definitions ─────────────────────────────────────────
-//
-// Maps field types introduced after ES 6.x to compatible alternatives.
-// Each downgrade function receives the original field definition and returns
-// a compatible definition for ES 6.x.
-//
-// Reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html
-
 interface FieldDefinition {
   type?: string;
   properties?: Record<string, FieldDefinition>;
@@ -38,63 +30,50 @@ type FieldTypeDowngrader = (def: FieldDefinition) => FieldDefinition;
  * | wildcard           | ES 7.9     | keyword (loses wildcard optimization) |
  * | version            | ES 7.10    | keyword                               |
  * | match_only_text    | ES 7.14    | text                                  |
+ * | unsigned_long      | ES 7.10    | long (values > 2^63-1 will overflow)  |
  */
 const FIELD_TYPE_DOWNGRADES: Record<string, FieldTypeDowngrader> = {
-  // flattened (ES 7.3) → object with enabled:false. Data preserved in _source, not searchable.
   flattened: (def) => ({
     type: 'object',
     enabled: false,
   }),
 
-  // search_as_you_type (ES 7.2) → text. Loses prefix/infix optimization.
   search_as_you_type: (def) => {
     // eslint-disable-next-line @typescript-eslint/naming-convention
     const { max_shingle_size, ...rest } = def;
     return { ...rest, type: 'text' };
   },
 
-  // constant_keyword (ES 7.7) → keyword. Preserves value as null_value.
   constant_keyword: (def) => ({
     type: 'keyword',
     ...(def.value !== undefined && { null_value: def.value }),
   }),
 
-  // histogram (ES 7.6) → object with enabled:false. Cannot aggregate.
   histogram: (def) => ({
     type: 'object',
     enabled: false,
   }),
 
-  // wildcard (ES 7.9) → keyword. Wildcards still work, just slower on large values.
   wildcard: (def) => {
     const { ...rest } = def;
     return { ...rest, type: 'keyword' };
   },
 
-  // version (ES 7.10) → keyword. No semantic version sorting.
   version: (def) => ({
     type: 'keyword',
   }),
 
-  // match_only_text (ES 7.14) → text. Uses more disk space.
   match_only_text: (def) => ({
     type: 'text',
   }),
 
-  // unsigned_long (ES 7.10) → long. Values > 2^63-1 will overflow.
   unsigned_long: (def) => ({
     type: 'long',
   }),
 };
 
-/**
- * List of unsupported field types for logging/debugging
- */
 export const UNSUPPORTED_ES6_TYPES = Object.keys(FIELD_TYPE_DOWNGRADES);
 
-// ── Field Type Downgrade Functions ───────────────────────────────────────────
-
-/** Recursively downgrade unsupported field types in a properties object. */
 export function downgradeFieldTypes(
   properties: Record<string, FieldDefinition>,
   path: string = ''
@@ -106,7 +85,6 @@ export function downgradeFieldTypes(
     const fieldPath = path ? `${path}.${fieldName}` : fieldName;
     let newDef = { ...fieldDef };
 
-    // Check if this field type needs downgrading
     if (fieldDef.type && FIELD_TYPE_DOWNGRADES[fieldDef.type]) {
       const downgrader = FIELD_TYPE_DOWNGRADES[fieldDef.type];
       newDef = downgrader(fieldDef);
@@ -117,14 +95,12 @@ export function downgradeFieldTypes(
       );
     }
 
-    // Recursively process nested properties
     if (fieldDef.properties) {
       const nested = downgradeFieldTypes(fieldDef.properties, fieldPath);
       newDef.properties = nested.properties;
       downgrades.push(...nested.downgrades);
     }
 
-    // Process fields within multi-fields
     if (fieldDef.fields) {
       const multiFields: Record<string, FieldDefinition> = {};
       for (const [subName, subDef] of Object.entries(
@@ -148,9 +124,6 @@ export function downgradeFieldTypes(
   return { properties: result, downgrades };
 }
 
-/**
- * Downgrade mappings object (handles both typed and typeless formats)
- */
 function downgradeMappings(mappings: any): { mappings: any; downgrades: string[] } {
   if (!mappings || typeof mappings !== 'object') {
     return { mappings, downgrades: [] };
@@ -189,24 +162,17 @@ export function translateRequest(params: any, backend: BackendInfo): any {
     typeof params.querystring === 'object' && params.querystring !== null ? params.querystring : {};
   const qs = { ...existing, include_type_name: true };
 
-  // ES 6.x requires the type in the URL path for putMapping.
-  // Rewrite /{index}/_mapping → /{index}/_doc/_mapping
-  // Only when an index prefix exists — bare /_mapping (all indices) stays as-is.
+  // Rewrite /{index}/_mapping → /{index}/_doc/_mapping (ES 6.x requires type in path)
   let { path } = params;
   if (path && !path.includes(`/${DEFAULT_DOCUMENT_TYPE}/`)) {
     path = path.replace(/^(\/[^/]+)\/_mapping(s)?/, `$1/${DEFAULT_DOCUMENT_TYPE}/_mapping$2`);
   }
 
-  // Downgrade field types in PUT mapping body
   let body = params.body;
   if (isPlainObject(body)) {
-    // PUT _mapping body can be: { properties: {...} } or { _doc: { properties: {...} } }
     if (body.properties || Object.values(body).some((v: any) => v?.properties)) {
-      const { mappings: downgradedBody, downgrades } = downgradeMappings(body);
+      const { mappings: downgradedBody } = downgradeMappings(body);
       body = downgradedBody;
-      if (downgrades.length > 0) {
-        // TODO: Add proper logger injection for debug logging of field type downgrades
-      }
     }
   }
 
@@ -218,21 +184,15 @@ export function translateIndexCreateRequest(params: any, backend: BackendInfo): 
     typeof params.querystring === 'object' && params.querystring !== null ? params.querystring : {};
   const qs = { ...existing, include_type_name: true };
 
-  // Skip body transformation if not a plain object (e.g., pre-serialized string)
   if (!isPlainObject(params.body) || !params.body.mappings) {
     return { ...params, querystring: qs };
   }
 
   let mappings = params.body.mappings;
 
-  // Downgrade unsupported field types before wrapping in _doc
   if ('properties' in mappings) {
-    const { mappings: downgradedMappings, downgrades } = downgradeMappings(mappings);
+    const { mappings: downgradedMappings } = downgradeMappings(mappings);
     mappings = downgradedMappings;
-
-    if (downgrades.length > 0) {
-      // TODO: Add proper logger injection for debug logging of field type downgrades
-    }
   }
 
   // Wrap in _doc type for ES 6.x

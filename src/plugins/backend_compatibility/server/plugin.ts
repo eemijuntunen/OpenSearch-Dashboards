@@ -23,13 +23,6 @@ export interface BackendCompatibilityPluginStart {
   getBackendInfo: () => BackendInfo | undefined;
 }
 
-/**
- * Backend Compatibility Plugin
- *
- * Registers a custom Transport class with core that transparently adapts
- * requests/responses for legacy Elasticsearch backends. The entire setup is
- * a single registerClientTransport() call.
- */
 export class BackendCompatibilityPlugin
   implements Plugin<BackendCompatibilityPluginSetup, BackendCompatibilityPluginStart> {
   private readonly logger: Logger;
@@ -52,10 +45,7 @@ export class BackendCompatibilityPlugin
     }
 
     this.logger.info(`Setting up ${PLUGIN_NAME}`);
-
-    // Register custom transport — this is the entire setup
     core.opensearch.registerClientTransport(CompatibilityTransport);
-
     this.logger.info('CompatibilityTransport registered with core');
     return {};
   }

@@ -20,9 +20,7 @@ const UNSUPPORTED_ES6_AGGREGATIONS = [
 
 const UNSUPPORTED_ES6_QUERIES = ['intervals', 'distance_feature', 'pinned'];
 
-// Translate search request body for ES 6.x (remove unsupported features, convert intervals)
 export function translateRequest(params: any, backend: BackendInfo): any {
-  // Skip if no body, or if body is not a plain object (e.g., pre-serialized string)
   if (!isPlainObject(params.body)) {
     return params;
   }
@@ -40,7 +38,6 @@ export function translateRequest(params: any, backend: BackendInfo): any {
   return { ...params, body };
 }
 
-// Translate msearch — apply search transforms to every other body item (odd indices are search bodies)
 export function translateMsearchRequest(params: any, backend: BackendInfo): any {
   if (!params.body || !Array.isArray(params.body)) return params;
 
@@ -53,7 +50,6 @@ export function translateMsearchRequest(params: any, backend: BackendInfo): any 
   return { ...params, body: transformed };
 }
 
-// Normalize search response: hits.total to object format, strip _type, synthesize _seq_no
 export function translateResponse(response: any, backend: BackendInfo): any {
   const body = response?.body || response;
   if (!body?.hits) return response;
@@ -72,7 +68,6 @@ export function translateResponse(response: any, backend: BackendInfo): any {
   return response;
 }
 
-// Normalize msearch response — apply response transforms to each sub-response
 export function translateMsearchResponse(response: any, backend: BackendInfo): any {
   const body = response?.body || response;
   if (!body?.responses) return response;
@@ -86,7 +81,6 @@ export function translateMsearchResponse(response: any, backend: BackendInfo): a
   return response;
 }
 
-// Walk all named aggregations and transform each one
 function transformAggregations(aggs: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
   for (const [name, agg] of Object.entries(aggs)) {
@@ -99,14 +93,12 @@ function transformAggregations(aggs: Record<string, any>): Record<string, any> {
   return result;
 }
 
-// Agg types that need a different output key or custom transform
 const AGG_TRANSFORMS: Record<string, (value: any) => { key: string; value: any }> = {
   date_histogram: (v) => ({ key: 'date_histogram', value: transformDateHistogram(v) }),
   auto_date_histogram: (v) => ({ key: 'date_histogram', value: transformAutoDateHistogram(v) }),
   geotile_grid: (v) => ({ key: 'geohash_grid', value: transformGeotileToGeohash(v) }),
 };
 
-// Transform a single aggregation: dispatch known types, recurse into sub-aggs, drop unsupported
 function transformAggregation(agg: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
   for (const [key, value] of Object.entries(agg)) {
@@ -128,7 +120,6 @@ function transformAggregation(agg: Record<string, any>): Record<string, any> {
   return result;
 }
 
-// Convert calendar_interval/fixed_interval to the legacy 'interval' param
 function transformDateHistogram(dh: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = {};
   for (const [key, value] of Object.entries(dh)) {
@@ -141,7 +132,6 @@ function transformDateHistogram(dh: Record<string, any>): Record<string, any> {
   return result;
 }
 
-// Convert auto_date_histogram to a regular date_histogram with a heuristic interval
 const BUCKET_INTERVALS: Array<[number, string]> = [
   [10, 'month'],
   [30, 'week'],
@@ -161,7 +151,6 @@ function transformAutoDateHistogram(adh: Record<string, any>): Record<string, an
   return result;
 }
 
-// Convert geotile_grid to geohash_grid with approximate precision mapping
 function transformGeotileToGeohash(gt: Record<string, any>): Record<string, any> {
   const result: Record<string, any> = { field: gt.field };
   if (typeof gt.precision === 'number') {
@@ -177,10 +166,8 @@ function transformGeotileToGeohash(gt: Record<string, any>): Record<string, any>
   return result;
 }
 
-// Shorthand: recursively transform a named nested query field (e.g. 'query', 'filter')
 const recurseOn = (field: string) => (v: any) => ({ ...v, [field]: transformQuery(v[field]) });
 
-// Query types that need recursive transformation or special handling
 const QUERY_TRANSFORMS: Record<string, (value: any) => any> = {
   bool: (v) => transformBoolQuery(v),
   nested: recurseOn('query'),
@@ -212,7 +199,6 @@ const QUERY_TRANSFORMS: Record<string, (value: any) => any> = {
   },
 };
 
-// Transform a query clause: dispatch compound types for recursion, drop unsupported
 function transformQuery(query: any): any {
   if (!query || typeof query !== 'object') return query;
   const result: any = {};
@@ -230,7 +216,6 @@ function transformQuery(query: any): any {
 
 const BOOL_CLAUSES = ['must', 'filter', 'should', 'must_not'] as const;
 
-// Transform bool query — recursively transform each clause (must, filter, should, must_not)
 function transformBoolQuery(bool: any): any {
   const result: any = {};
   const mapQ = (q: any) => (Array.isArray(q) ? q.map(transformQuery) : transformQuery(q));

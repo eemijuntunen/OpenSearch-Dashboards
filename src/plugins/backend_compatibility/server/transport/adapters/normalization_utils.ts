@@ -4,19 +4,16 @@
  */
 
 /**
- * Check if a value is a plain object (not null, array, Buffer, or primitive).
- * Translators must check this before spreading params.body — strings and Buffers
- * (e.g. from DevTools) produce malformed objects with numeric keys when spread.
+ * Strings and Buffers (e.g. from DevTools console proxy) produce malformed
+ * objects with numeric keys when spread — callers must check before spreading params.body.
  */
 export function isPlainObject(value: any): value is Record<string, any> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return false;
   }
-  // Exclude Buffer objects (from DevTools/console proxy)
   if (Buffer.isBuffer(value)) {
     return false;
   }
-  // Exclude serialized Buffer format { type: 'Buffer', data: [...] }
   if (value.type === 'Buffer' && Array.isArray(value.data)) {
     return false;
   }

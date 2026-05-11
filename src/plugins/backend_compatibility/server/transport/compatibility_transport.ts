@@ -13,45 +13,18 @@ import * as mappingAdapter from './adapters/mapping_adapter';
 import * as fieldCapsAdapter from './adapters/field_caps_adapter';
 import * as scrollAdapter from './adapters/scroll_adapter';
 
-/** Detection timeout in milliseconds */
 const DETECTION_TIMEOUT_MS = 30000;
-/** Max detection attempts before permanently falling back to pass-through */
 const MAX_DETECTION_ATTEMPTS = 3;
 
-// ── Route Table ─────────────────────────────────────────────────────────
-//
-// Each entry maps a URL path pattern to request/response translators.
-// Entries are evaluated in order — first match wins.
-//
-// Fields:
-//   pattern   — regex tested against the normalized path (query params already stripped)
-//   guard     — optional extra condition (method, body shape, etc.)
-//   request   — transform params before sending to the backend
-//   response  — transform the backend response before returning to the caller
-//
-// To add support for a new API:
-//   1. Add an entry here
-//   2. Write translateRequest/translateResponse in an adapter module
-
 interface RouteEntry {
-  /** Human-readable name for debugging */
   name: string;
-  /** Regex matched against the path (after normalizeParams strips query params) */
   pattern: RegExp;
-  /** Optional guard — return false to skip this entry even if the pattern matches */
   guard?: (params: any) => boolean;
-  /** Request translator (ES 6.x) */
   request?: (params: any, backend: BackendInfo) => any;
-  /** Response translator (ES 6.x) */
   response?: (response: any, backend: BackendInfo) => any;
-  /** Response translator (ES 7.x) — if omitted, ES 7.x responses pass through */
   es7Response?: (response: any, backend: BackendInfo) => any;
 }
 
-/**
- * Strip _type from search/scroll hit arrays.
- * Used by ES 7.x response normalization.
- */
 function stripTypeFromHits(response: any): any {
   const body = response?.body || response;
   if (body?.hits?.hits && Array.isArray(body.hits.hits)) {
@@ -64,10 +37,6 @@ function stripTypeFromHits(response: any): any {
   return response;
 }
 
-/**
- * Strip _type from msearch response hits.
- * Used by ES 7.x response normalization.
- */
 function stripTypeFromMsearchHits(response: any): any {
   const body = response?.body || response;
   if (!body?.responses) return response;
@@ -86,12 +55,7 @@ function stripTypeFromMsearchHits(response: any): any {
   return response;
 }
 
-/**
- * Declarative route table for ES 6.x and 7.x translation.
- *
- * ORDER MATTERS — more specific patterns must come before broader ones.
- * e.g. /_search/scroll before /_search, /_create before /_doc.
- */
+// ORDER MATTERS — more specific patterns must come before broader ones.
 const ROUTE_TABLE: RouteEntry[] = [
   // ── Search ────────────────────────────────────────────────────────
   {
@@ -185,19 +149,7 @@ const ROUTE_TABLE: RouteEntry[] = [
   },
 ];
 
-/**
- * Custom Transport that transparently translates requests/responses
- * for legacy Elasticsearch backends.
- *
- * This is the single interception point for ALL client API calls.
- * Every client method (search, bulk, index, etc.) calls transport.request().
- */
 export class CompatibilityTransport extends Transport {
-  /**
-   * Last detected backend info, shared across instances.
-   * Allows the plugin to expose getBackendInfo() without
-   * coupling to a specific transport instance.
-   */
   static lastDetectedBackend: BackendInfo | null = null;
 
   private backend: BackendInfo | null = null;
@@ -207,23 +159,19 @@ export class CompatibilityTransport extends Transport {
   async request(params: any, options?: any): Promise<any> {
     await this.ensureBackendDetected(options);
 
-    // OpenSearch? Pass through entirely (zero overhead)
     if (!this.backend || this.backend.distribution === 'opensearch') {
       return super.request(params, options);
     }
 
-    // ES 7.x: requests pass through unchanged, normalize select responses
     if (this.backend.majorVersion >= 7) {
       const response = await super.request(params, options);
       return this.applyES7Response(params, response);
     }
 
-    // ES 6.x: intercept _resolve/index (API doesn't exist in ES 6.x)
     if (params.path?.includes('/_resolve/index')) {
       return this.handleResolveIndex(params, options);
     }
 
-    // ES 6.x: route-table-driven translation
     const normalized = this.normalizeParams(params);
     const route = this.matchRoute(normalized);
 
@@ -250,7 +198,6 @@ export class CompatibilityTransport extends Transport {
     return undefined;
   }
 
-  /** Apply ES 7.x response normalization (strip _type from hits). */
   private applyES7Response(params: any, response: any): any {
     const { path } = params;
     if (!path) return response;
@@ -352,10 +299,6 @@ export class CompatibilityTransport extends Transport {
 
   // ── Parameter normalization ─────────────────────────────────────────
 
-  /**
-   * Ensure params.querystring is always a plain object and extract any
-   * query parameters embedded in params.path.
-   */
   private normalizeParams(params: any): any {
     let path = params.path;
     let qs: Record<string, any> =
@@ -363,7 +306,6 @@ export class CompatibilityTransport extends Transport {
         ? { ...params.querystring }
         : {};
 
-    // Extract query params embedded in the path
     if (path && path.includes('?')) {
       const idx = path.indexOf('?');
       const pathQs = parseQuerystring(path.substring(idx + 1));
