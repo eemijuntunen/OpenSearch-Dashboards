@@ -13,21 +13,4 @@ export interface BackendInfo {
   patchVersion: number;
 }
 
-export interface TransportRequestParams {
-  method: string;
-  path: string;
-  body?: any;
-  querystring?: Record<string, any>;
-  bulkBody?: any[];
-}
-
-export interface TransportRequestOptions {
-  ignore?: number[];
-  requestTimeout?: number;
-  maxRetries?: number;
-  asStream?: boolean;
-  headers?: Record<string, string>;
-  [key: string]: any;
-}
-
 export const DEFAULT_DOCUMENT_TYPE = '_doc';

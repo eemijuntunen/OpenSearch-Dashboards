@@ -48,7 +48,4 @@ export function detectBackend(clusterInfo: ClusterInfoResponse): BackendInfo {
   };
 }
 
-export function getBackendDescription(backendInfo: BackendInfo): string {
-  const distName = backendInfo.distribution === 'opensearch' ? 'OpenSearch' : 'Elasticsearch';
-  return `${distName} ${backendInfo.version}`;
-}
+
