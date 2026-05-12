@@ -26,8 +26,6 @@ export const BarVisStyleControls: React.FC<BarVisStyleControlsProps> = ({
   numericalColumns = [],
   categoricalColumns = [],
   dateColumns = [],
-  availableChartTypes = [],
-  selectedChartType,
   axisColumnMappings,
   updateVisualization,
 }) => {
@@ -38,7 +36,10 @@ export const BarVisStyleControls: React.FC<BarVisStyleControlsProps> = ({
     onStyleChange({ [key]: value });
   };
 
-  const axes = [axisColumnMappings[AxisRole.X], axisColumnMappings[AxisRole.Y]];
+  const axes = [
+    ...(axisColumnMappings[AxisRole.X] ?? []),
+    ...(axisColumnMappings[AxisRole.Y] ?? []),
+  ];
   const hasDate = axes.some((axis) => axis?.schema === VisFieldType.Date);
 
   // 3 bucket types for bar chart:
@@ -62,8 +63,6 @@ export const BarVisStyleControls: React.FC<BarVisStyleControlsProps> = ({
           currentMapping={axisColumnMappings}
           updateVisualization={updateVisualization}
           chartType="bar"
-          onSwitchAxes={(v) => updateStyleOption('switchAxes', v)}
-          switchAxes={styleOptions.switchAxes}
         />
       </EuiFlexItem>
       {hasMappingSelected && (
@@ -120,7 +119,6 @@ export const BarVisStyleControls: React.FC<BarVisStyleControlsProps> = ({
               onStandardAxesChange={(standardAxes) =>
                 updateStyleOption('standardAxes', standardAxes)
               }
-              switchAxes={styleOptions.switchAxes}
               showFullTimeRange={styleOptions.showFullTimeRange}
               onShowFullTimeRangeChange={(showFullTimeRange) =>
                 updateStyleOption('showFullTimeRange', showFullTimeRange)

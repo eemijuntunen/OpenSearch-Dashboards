@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { HistogramVisStyleControls, HistogramVisStyleControlsProps } from './histogram_vis_options';
@@ -31,8 +30,8 @@ const mockNumericalColumns: VisColumn[] = [
 ];
 
 const mockAxisColumnMappings: AxisColumnMappings = {
-  [AxisRole.X]: mockNumericalColumns[0],
-  [AxisRole.Y]: mockNumericalColumns[1],
+  [AxisRole.X]: [mockNumericalColumns[0]],
+  [AxisRole.Y]: [mockNumericalColumns[1]],
 };
 
 jest.mock('../bar/bucket_options.tsx', () => ({
@@ -121,7 +120,7 @@ describe('BarVisStyleControls', () => {
 
   test('render correct bucket panel for one numerical fields', async () => {
     const mockSingleAxisColumnMappings: AxisColumnMappings = {
-      [AxisRole.X]: mockNumericalColumns[0],
+      [AxisRole.X]: [mockNumericalColumns[0]],
     };
 
     const propsWithNumBucket = {

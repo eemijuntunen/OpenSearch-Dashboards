@@ -25,8 +25,6 @@ export const HistogramVisStyleControls: React.FC<HistogramVisStyleControlsProps>
   numericalColumns = [],
   categoricalColumns = [],
   dateColumns = [],
-  availableChartTypes = [],
-  selectedChartType,
   axisColumnMappings,
   updateVisualization,
 }) => {
@@ -37,7 +35,10 @@ export const HistogramVisStyleControls: React.FC<HistogramVisStyleControlsProps>
     onStyleChange({ [key]: value });
   };
 
-  const axes = [axisColumnMappings[AxisRole.X], axisColumnMappings[AxisRole.Y]];
+  const axes = [
+    ...(axisColumnMappings[AxisRole.X] ?? []),
+    ...(axisColumnMappings[AxisRole.Y] ?? []),
+  ];
   const hasNum = axes.some((axis) => axis?.schema === VisFieldType.Numerical);
 
   // bucket types for histogram chart:
@@ -88,6 +89,7 @@ export const HistogramVisStyleControls: React.FC<HistogramVisStyleControlsProps>
             />
           </EuiFlexItem>
           <EuiFlexItem grow={false}>
+            {/* @ts-expect-error TS2741 TODO(ts-error): fixme */}
             <BarExclusiveVisOptions
               type="histogram"
               barSizeMode={styleOptions.barSizeMode}
